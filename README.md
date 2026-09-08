@@ -13,7 +13,8 @@ Stealthy point patterns exhibit vanishing density fluctuations at low frequencie
 The main blue-noise samplers (**RGBN** and **NUFFT**) offer **linear** complexity in the number of points.  
 They can generate e.g. 1 million 2D (resp 3D) points in under 10 minutes (resp 30 minutes) on a standard CPU, and up to 30× faster on GPU (30s resp 1 minute). 
 
-> **Note**: The sampling methods implemented here support adaptive sampling from a target distribution. This feature is still experimental beyond 2d distributions
+> **Note on adaptative sampling**: The sampling methods implemented here support adaptive sampling from a target distribution. This feature is still experimental beyond 2d distributions
+> **Note on structure factor computation**: The structure factor is estimated from the standard `scattering intensity` and assumes that the point domain is the unit hypercube. By default, the computation uses float32 precision, which limits the reliable estimation of very small structure factors (≲ 1e-10). For ultra-stealthy point patterns with S(k) ≲ 1e-10, enable 64-bit precision in JAX before computing the structure factor: jax.config.update("jax_enable_x64", True)
 
 ---
 
