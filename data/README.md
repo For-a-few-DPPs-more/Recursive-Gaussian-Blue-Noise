@@ -6,7 +6,7 @@ GitHub Large File Storage (TODO).
 
 ## RGBN datasets
 
-All datasets marked `rgbn` were **generated for this repository** using the
+All datasets marked `rgbn` were generated using the
 `blue_sampler` package with:
 
 ```python
@@ -16,9 +16,9 @@ blue_sampler.samplepoints(method="rgbn")
 The datasets were generated on a 10 GB GPU (Google Colab T4), with a typical
 runtime of less than 10 minutes per dataset.
 
-## NUFFT datasets
+## FINUFFT datasets
 
-All datasets marked `nufft` were **generated for this repository** using the
+All datasets marked `nufft` were generated using the
 sampling procedure provided in the following notebook:
 
 [NUFFT sampling notebook (Google Colab)](https://colab.research.google.com/drive/1QDc6u6qYDsEXze5uoFEDNGIfgNfAEJip?usp=sharing)
