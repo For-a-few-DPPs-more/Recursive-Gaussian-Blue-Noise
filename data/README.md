@@ -21,7 +21,7 @@ runtime of less than 10 minutes per dataset.
 All datasets marked `nufft` were **generated for this repository** using the
 sampling procedure provided in the following notebook:
 
-[NUFFT sampling notebook (Google Colab)](https://colab.research.google.com/drive/1QDc6u6qYDsEXze5uoFEDNGIfgNfAEJip?usp=sharing&utm_source=chatgpt.com)
+[NUFFT sampling notebook (Google Colab)](https://colab.research.google.com/drive/1QDc6u6qYDsEXze5uoFEDNGIfgNfAEJip?usp=sharing)
 
 The datasets were generated on a 10 GB GPU (Google Colab T4), with a typical
 runtime of less than 10 minutes per dataset.
