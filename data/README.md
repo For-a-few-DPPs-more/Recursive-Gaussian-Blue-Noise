@@ -18,7 +18,7 @@ runtime of less than 10 minutes per dataset.
 
 ## FINUFFT datasets
 
-All datasets marked `nufft` were generated using the
+All datasets marked `finufft` were generated using the
 sampling procedure provided in the following notebook:
 
 [NUFFT sampling notebook (Google Colab)](https://colab.research.google.com/drive/1QDc6u6qYDsEXze5uoFEDNGIfgNfAEJip?usp=sharing)
