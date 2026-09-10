@@ -15,7 +15,7 @@ from numpy.typing import NDArray
 import matplotlib.pyplot as plt
 from matplotlib.collections import PolyCollection
 
-from .math import structure_factor
+from .math import structure_factor_and_average
 from .run.run_tessels import back_merge_tessels
 from .run.run_clusters import back_merge_clusters
 
@@ -114,90 +114,122 @@ def plot(
 
 def plot_structure_factor(
     points: NDArray,
-    resolution: int = 2000,
+    resolution: int = 20_000,
     smoothed: bool = True,
-    min_val: float = 1e-20,
     ax: plt.Axes | None = None,
     return_fig: bool = False,
+    title: str = None,
     **plot_kw,
 ) -> tuple[plt.Figure, plt.Axes] | None:
     """
     Log-log plot of the radial structure factor S(k).
 
-    S(k) is estimated via scattering intensity (squared modulus of the
-    empirical Fourier transform) at a set of wave vectors sampled up to
-    a radius proportional to ``N^(1/D)``.
+    The structure factor is estimated from the scattering intensity, i.e. the
+    squared modulus of the empirical Fourier transform, evaluated at a set of
+    wave vectors from a dual lattice with wave-number up to ``n = 2 * N**(1/D)``.
+
+    The wave vectors are normalised such that k=1 corresponds to the wave-number
+    n = N**(1/D) associated to the inter-particle distance.
 
     Parameters
     ----------
     points : ndarray of shape (N, D)
-        Point coordinates in [0, 1)^D.
-    resolution : int, default 2000
-        Number of sampled wave vectors. Higher values give a smoother curve
-        at increased computation time.
-    smoothed : bool, default True
-        If True, overlay a local log-log Gaussian average on top of the raw
-        scatter. If False, only the raw values are shown.
-    min_val : float, default 1e-20
-        Floor value applied before taking logarithms, to avoid ``log(0)``
-        overflow.
-    ax : matplotlib Axes, optional
-        Existing axes to draw into. If None, a new figure is created.
-    return_fig : bool, default False
-        If True, return ``(fig, ax)`` instead of calling ``plt.show()``.
+        Point coordinates in the unit hypercube ``[0, 1)^D``.
+    resolution : int, default=20000
+        Number of sampled wave vectors. Larger values produce a smoother
+        radial curve at increased computational cost. If D >= 4, the resolution
+        will be divided by 10 for faster computation.
+    smoothed : bool, default=True
+        If True, overlay a local average curve. If False, show only the raw
+        scattering intensities.
+    min_val : float, default=1e-20
+        Lower bound applied to S(k) before taking logarithms, to avoid
+        ``log(0)``.
+    ax : matplotlib.axes.Axes, optional
+        Existing axes on which to draw. If None, a new figure is created.
+    return_fig : bool, default=False
+        If True, return ``(fig, ax)`` instead of displaying the figure.
     **plot_kw
-        Extra keyword arguments forwarded to ``ax.loglog`` (smoothed line).
+        Additional keyword arguments forwarded to ``ax.loglog`` for the
+        smoothed curve.
 
     Returns
     -------
-    (fig, ax) if return_fig is True, else None.
+    (fig, ax) or None
+        Returns ``(fig, ax)`` if ``return_fig=True``; otherwise returns None.
 
     Notes
     -----
-    A stealthy / blue-noise point set will show S(k) ≈ 0 for small k.
-    This is the visual signature of hyperuniformity.
+    The wave number is normalized by the characteristic inter-particle
+    spacing ``N**(-1/D)``. Thus, ``k=1`` corresponds to the physical wave
+    number ``N**(1/D)`` for a unit-volume point set.
+
+    For an order alpha hyperuniform point process, one expects
+    ``S(k) ≈ k**alpha`` for k << 1. More generally, suppression of S(k) at
+    small k is the characteristic spectral signature of hyperuniformity.
+
+    The plotted scattering intensity is an estimator of the structure factor,
+    not the exact structure factor. If the point set is not itself periodic,
+    finite-window boundary effects introduce a systematic bias. At the scales
+    considered here, a typical boundary error epsilon = S(k) - Stheoric(k)
+    of order ``N**(-1/D)`` is expected.
+
+    Warnings
+    --------
+    The input points are assumed to lie in the unit hypercube ``[0, 1)^D``.
+    This is required for the normalization and is not checked inside the
+    estimator.
     """
     pts = np.asarray(points).reshape(-1, np.asarray(points).shape[-1])
-    k, S = structure_factor(pts, resolution=resolution)
-    S = S.clip(min=min_val)
+    # --- Compute structure factor and and averages ---
+    k, S, kgroup, Sgroup = structure_factor_and_average(pts, resolution=resolution)
 
-    if smoothed:
-        logk = np.log(k)
-        sigma = (logk[-1] - logk[0]) * 0.01
-        logS = np.log(S)
-        S_smooth = np.empty_like(logS)
-        for i in range(len(k)):
-            w = np.exp(-(logk - logk[i]) ** 2 / (2 * sigma**2))
-            w /= w.sum()
-            S_smooth[i] = np.exp(np.sum(w * logS))
-        S = S.clip(min=S_smooth.min())
-    else:
-        S_smooth = np.nan
-
-    kw = dict(marker="o", markersize=2, linewidth=2)
-    kw.update(plot_kw)
-
-    if ax is None:
+    # --- Axes setup ---
+    own_fig = ax is None
+    if own_fig:
         fig, ax = plt.subplots(figsize=(7, 5))
     else:
         fig = ax.get_figure()
 
+    ax.set_axisbelow(True)
+    ax.grid(True, which="both", alpha=0.4, zorder=0)
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+
+    # --- Scatter: dim color when smoothed curve will overlay ---
     scat_color = "lightgray" if smoothed else "tab:blue"
     scat_big_color = "gray" if smoothed else "tab:blue"
 
-    ax.set_axisbelow(True)
-    ax.grid(True, which="both", alpha=0.4, zorder=0)
-    bigS = S >= 30*S_smooth
-    ax.scatter(k[~bigS], S[~bigS], s=5, color=scat_color, alpha=0.6, zorder=2)
-    ax.scatter(k[bigS], S[bigS], s=20, color=scat_big_color, alpha=1.0, zorder=2)
-    ax.set_xscale("log")
-    ax.set_yscale("log")
     if smoothed:
-        ax.loglog(k, S_smooth, color="tab:blue", zorder=3, **kw)
+        Sgroup_interp = np.exp(np.interp(
+            np.log(k), np.log(kgroup), np.log(Sgroup)
+        ))
+        bigS = S >= 30 * Sgroup_interp
+    else:
+        bigS = np.zeros(len(S), dtype=bool)
 
-    ax.set_xlabel(r"$k = \frac{2\pi}{L}\sqrt{n_x^2 + n_y^2\,\ldots}$")
-    ax.set_ylabel(r"$S(k)$")
-    ax.set_title("Structure factor (log-log, scattering intensity)")
+    ax.scatter(k[~bigS], S[~bigS], s=5,  color=scat_color,     alpha=0.6, zorder=2)
+    ax.scatter(k[bigS],  S[bigS],  s=20, color=scat_big_color, alpha=1.0, zorder=2)
+
+    # --- Smoothed curve ---
+    if smoothed:
+        curve_kw = {"color": "tab:blue", "zorder": 3, "label": None,
+                    "marker": "o", "markersize": 2, "linewidth": 2}
+        curve_kw.update(plot_kw)
+        ax.loglog(kgroup, Sgroup, **curve_kw)
+        if curve_kw.get("label") not in (None, "_nolegend_"):
+            ax.legend()
+
+    # --- Reference lines and axis limits (only when we own the figure) ---
+    if own_fig:
+        ax.axvline(1, color="green", linewidth=2, alpha=0.2, zorder=1)
+        ax.axhline(1, color="green", linewidth=2, alpha=0.2, zorder=1)
+        ax.set_xlim(right=2)
+        ax.set_ylim(top=2)
+        ax.set_xlabel(r"$k$")
+        ax.set_ylabel(r"$S(k)$")
+
+    ax.set_title(title or "Structure factor (log-log, scattering intensity)")
     plt.tight_layout()
 
     if return_fig:

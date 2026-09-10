@@ -81,10 +81,10 @@ x = blue.sample_points(N, D, method="rgbn") #(N, D)
 
 | Method         | Description                              |
 |----------------|------------------------------------------|
-| `bruteforce`   | original Gaussian-Blue-Noise sampler (high quality, slow), A. G. M. Ahmed, J. Ren, and P. Wonka.  |
+| `gaussian`   | original Gaussian-Blue-Noise sampler (high quality, slow), A. G. M. Ahmed, J. Ren, and P. Wonka.  |
 | `rgbn`         | Recursive Gaussian-Blue-Noise (speed-up GBN with robust approximations)      |
 | `nufft`        | Non-Uniform FFT (speed-up spectral methods with fast fourier transform)    |
-| `cheap`        | fast and simple lattice jittering        |
+| `latjit`        | fast and simple lattice jittering        |
 
 ---
 

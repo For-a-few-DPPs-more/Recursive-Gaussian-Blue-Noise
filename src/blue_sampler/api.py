@@ -42,7 +42,7 @@ from .momentum.momentum import _from_geometry
 
 from .viz import plot, plot_polygons
 
-BlueNoiseMethod = Literal["rgbn", "nufft", "bruteforce", "cheap"]
+BlueNoiseMethod = Literal["rgbn", "nufft", "gaussian", "latjit"]
 WarmstartMethod = Literal["Goodlattice", "Sobol", "Pinwheel"]
 ClusterMethod = Literal["Goodlattice", "Sobol", "Pinwheel"]
 
@@ -128,7 +128,7 @@ def sample_points(
         improve final quality. The default of 1.0 works well in most cases;
         only tune this if you have a specific speed/quality trade-off in mind.
 
-    method : {"rgbn", "nufft", "bruteforce", "cheap"}, default "rgbn"
+    method : {"rgbn", "nufft", "gaussian", "latjit"}, default "rgbn"
         Sampling algorithm:
 
         - ``"rgbn"``       — Recursive Gaussian Blue-Noise. Spatial loss,
@@ -136,12 +136,12 @@ def sample_points(
         - ``"nufft"``      — Non-Uniform Fast Fourier Transform. Spectral loss.
             mostly similar performance to rgbn but depending on the backend, 
             problem scale..., might give better speed or accuracy. 
-        - ``"bruteforce"`` — Exact GBN with no truncation. O(N²) cost per iteration, and O(N^3) total cost 
+        - ``"gaussian"`` — Exact GBN with no truncation. O(N²) cost per iteration, and O(N^3) total cost 
             because number of iterations also scales like N
             ultra high quality
             ultra slow (unless N is <= few thousands)
           Note: bruteforce is automatically selected when N ≤ 2 000.
-        - ``"cheap"`` — simple, instantaneous, just a perturbed lattice. Take a 
+        - ``"latjit"`` — simple, instantaneous, just a perturbed lattice. Take a 
             grid and hide the grid structure with a random jittering.
 
     warmstart : {None, "Goodlattice", "Sobol", "Pinwheel", ndarray of shape (N, D)}, default None
@@ -173,20 +173,20 @@ def sample_points(
 
     Notes
     -----
-    ``bruteforce`` is automatically used for N ≤ 1 000, regardless of the
+    ``gaussian`` is automatically used for N ≤ 1 000, regardless of the
     ``method`` argument, as it is optimal in that regime.
     """
-    methods = ["rgbn", "bruteforce", "nufft", "cheap"]
+    methods = ["rgbn", "gaussian", "nufft", "latjit"]
     n_iter = n_iter_scale
     if method not in methods:
         raise ValueError(f"unknown method {method!r}, must be one of {methods}")
 
-    if method == "cheap":
+    if method == "latjit":
         if targets is not None:
-            raise NotImplementedError(f"cheap sampling method doesn't support giving target distribution (only uniform sampling)")
+            raise NotImplementedError(f"latjit sampling method doesn't support giving target distribution (only uniform sampling)")
         return jitter(N, D, verbose)
 
-    bruteforce = method == "bruteforce" or (N <= 1_000 if D  == 2 else N <= 3_000)
+    bruteforce = method == "gaussian" or (N <= 1_000 if D  == 2 else N <= 3_000)
     nufft = method == "nufft"
 
     has_warmstart = warmstart is not None
@@ -701,7 +701,7 @@ def warmstart_points(
     )
 
 def jitter(N, D, verbose):
-    """perturbed lattice based, cheap blue noise method"""
+    """perturbed lattice based, latjit blue noise method"""
     n = int(round(N ** (1 / D)))
     if verbose >= 1:
         warnings.warn(

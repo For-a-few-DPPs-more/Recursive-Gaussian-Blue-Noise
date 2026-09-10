@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name        = "blue_sampler"
-version     = "1.3.16"
+version     = "2.0.0"
 description = "Stealthy point-pattern sampling on the unit torus"
 readme      = "README.md"
 license     = { text = "MIT" }
@@ -29,14 +29,15 @@ dependencies = [
     "jaxlib",
     "optax",
     "matplotlib",
+    "finufft",
     "squarenet >= 1.3",
 ]
 
 [project.urls]
-Repository = "https://github.com/For-a-few-DPPs-more/rgbn"
+Repository = "https://github.com/For-a-few-DPPs-more/Recursive-Gaussian-Blue-Noise"
 Documentation = "https://blue-sampler.readthedocs.io"
 PyPI = "https://pypi.org/project/blue-sampler/"
-"Examples (Colab)" = "https://colab.research.google.com/github/For-a-few-DPPs-more/rgbn/blob/main/examples.ipynb"
+"Examples (Colab)" = "https://colab.research.google.com/github/For-a-few-DPPs-more/Recursive-Gaussian-Blue-Noise/blob/main/examples.ipynb"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/blue_sampler"]

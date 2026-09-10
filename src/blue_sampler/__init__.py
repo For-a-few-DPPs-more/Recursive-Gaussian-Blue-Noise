@@ -27,7 +27,7 @@ from .api import (
     warmstart_points,
 )
 from .viz import plot, plot_structure_factor, plot_tessels, plot_clusters, plot_polygons
-from .math import structure_factor
+from .math import structure_factor, structure_factor_and_average
 from .datasets import generate_dataset
 
 __all__ = [
@@ -42,6 +42,7 @@ __all__ = [
     "pinwheel_base",
     "pinwheel_transform",
     "structure_factor",
+    "structure_factor_and_average",
     "generate_dataset",
     "plot",
     "plot_structure_factor",
@@ -52,4 +53,4 @@ __all__ = [
     "warmstart_points",
 ]
 
-__version__ = "1.3.16"
+__version__ = "2.0.0"
