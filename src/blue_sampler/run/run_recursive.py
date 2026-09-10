@@ -78,7 +78,7 @@ def _recursive_pipeline(
         IJK, _, Axes = grid_shape(N, D)
         Nsqrt      = N ** 0.5
         Ncbrt      = N ** (1.0 / D)
-        bruteforce = _bruteforce or (N <= brute_thresh) or D >= 6
+        bruteforce = _bruteforce or (N <= brute_thresh)
         sigma2     = S * 2.0 * (1.0 / Ncbrt) ** 2
         high_D     = sigma2 >= 0.03
 
