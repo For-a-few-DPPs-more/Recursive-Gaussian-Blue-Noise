@@ -115,7 +115,6 @@ def plot(
 def plot_structure_factor(
     points: NDArray,
     resolution: int = 20_000,
-    smoothed: bool = True,
     ax: plt.Axes | None = None,
     return_fig: bool = False,
     title: str = None,
@@ -139,12 +138,6 @@ def plot_structure_factor(
         Number of sampled wave vectors. Larger values produce a smoother
         radial curve at increased computational cost. If D >= 4, the resolution
         will be divided by 10 for faster computation.
-    smoothed : bool, default=True
-        If True, overlay a local average curve. If False, show only the raw
-        scattering intensities.
-    min_val : float, default=1e-20
-        Lower bound applied to S(k) before taking logarithms, to avoid
-        ``log(0)``.
     ax : matplotlib.axes.Axes, optional
         Existing axes on which to draw. If None, a new figure is created.
     return_fig : bool, default=False
@@ -197,28 +190,24 @@ def plot_structure_factor(
     ax.set_yscale("log")
 
     # --- Scatter: dim color when smoothed curve will overlay ---
-    scat_color = "lightgray" if smoothed else "tab:blue"
-    scat_big_color = "gray" if smoothed else "tab:blue"
+    scat_color = "lightgray" 
+    scat_big_color = "gray" 
 
-    if smoothed:
-        Sgroup_interp = np.exp(np.interp(
-            np.log(k), np.log(kgroup), np.log(Sgroup)
-        ))
-        bigS = S >= 30 * Sgroup_interp
-    else:
-        bigS = np.zeros(len(S), dtype=bool)
+    Sgroup_interp = np.exp(np.interp(
+        np.log(k), np.log(kgroup), np.log(Sgroup)
+    ))
+    bigS = S >= 30 * Sgroup_interp
 
     ax.scatter(k[~bigS], S[~bigS], s=5,  color=scat_color,     alpha=0.6, zorder=2)
     ax.scatter(k[bigS],  S[bigS],  s=20, color=scat_big_color, alpha=1.0, zorder=2)
 
     # --- Smoothed curve ---
-    if smoothed:
-        curve_kw = {"color": "tab:blue", "zorder": 3, "label": None,
-                    "marker": "o", "markersize": 2, "linewidth": 2}
-        curve_kw.update(plot_kw)
-        ax.loglog(kgroup, Sgroup, **curve_kw)
-        if curve_kw.get("label") not in (None, "_nolegend_"):
-            ax.legend()
+    curve_kw = {"color": "tab:blue", "zorder": 3, "label": None,
+                "marker": "o", "markersize": 2, "linewidth": 2}
+    curve_kw.update(plot_kw)
+    ax.loglog(kgroup, Sgroup, **curve_kw)
+    if curve_kw.get("label") not in (None, "_nolegend_"):
+        ax.legend()
 
     # --- Reference lines and axis limits (only when we own the figure) ---
     if own_fig:

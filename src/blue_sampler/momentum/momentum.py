@@ -167,6 +167,7 @@ def momentum_fit(
     distribution,
     distribution_type="clusters",
     p=3,
+    n_per_cells = "auto",
     verbose=1,
     weights=None,
     n_restarts=1,
@@ -179,10 +180,8 @@ def momentum_fit(
     """Fit n points X_1, ..., X_n whose centroid and central moments
     (q = 1, ..., p-1) match those of `distribution`.
 
-    n is determined automatically (see `required_n`): it is not a
-    parameter. When p == 2, only the centroid (q = 1) is requested; no
-    central moments and no LM solve are needed, so the n = 1 target
-    centroid is returned directly.
+    n is determined automatically (see `required_n`) or controlled via
+    the n_per_cells parametter.
     """
 
     geometry = distribution_type
@@ -196,7 +195,7 @@ def momentum_fit(
 
     orders = moment_orders(p, D)
 
-    n = required_n(p, D)
+    n = required_n(p, D) if n_per_cells == "auto" else n_per_cells
 
     if geometry == "clusters":
         nc = distribution.shape[-2]
@@ -211,7 +210,7 @@ def momentum_fit(
             n = max(1, nc - 1)
         
 
-    if p == 2:
+    if p == 2 and n == 1:
         # Only q = 1 (the centroid) is requested: n = 1, and the unique
         # point matching the centroid is the centroid itself. No
         # central-moment constraints, no LM solve needed.

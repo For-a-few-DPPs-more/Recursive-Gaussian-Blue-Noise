@@ -10,13 +10,36 @@ using a median separation along a random direction drawn uniformly
 from the unit sphere S^(D-1). 
 
 Atoms can be sampled from either a (possibly non homogeneous) 
-distribution given by the user, or from a sobol sequence (default). 
+distribution given by the user, or from a random lattice (default). 
 """
 
-from ..warm_start import _sobol_warmstart
+from ..warm_start import _goodlattice_warmstart
+
+from ..momentum.momentum import _from_geometry, required_n
 
 import numpy as np
+import math
 
+def _cstit_pipeline(N, D, targets, verbose, n_iter, lr):
+    """
+    Wrapper for the full stit pipeline (with the cluster method)
+    """
+    n_per_cells = required_n(p = 3, D = D)
+    dpcell = math.ceil(np.log2(n_per_cells) - 1e-6)
+    n_per_cells = 2**dpcell
+    depth  = int(np.log2(N) + 1e-6) - dpcell
+    N = 2**depth
+    if targets is not None:
+        targets = np.asarray(targets).reshape(-1, D)
+        assert len(targets) == N * (len(targets)//N), (
+            "cstit require number of targets to be a multiple of N for"
+            "fair clustering method. "
+        )
+        targets = targets[None]
+    x = _clusterisation(depth, D, targets = targets, n_per_cluster = 32)
+    y = _from_geometry(x, gtype= "clusters", p = 3, n_iter = n_iter, 
+                       verbose = verbose, lambda0 = lr/100, n_per_cells = n_per_cells)
+    return y.reshape(-1, D)
 # ------------------------------------------------------------
 # Balanced split using a random median hyperplane
 # ------------------------------------------------------------
@@ -109,7 +132,7 @@ def _clusterisation(
 
     1. Generate an initial set of atoms.
 
-    By default a Sobol low-discrepancy sequence is used.
+    By default a random lattice is used.
 
     2. Apply recursive balanced median splits.
 
@@ -134,12 +157,12 @@ def _clusterisation(
 
         Custom initial point cloud of shape (1, K, D).
 
-        If omitted, a Sobol sequence is generated automatically.
+        If omitted, a random lattice is generated.
 
     n_per_cluster : int, default=100
 
         Desired number of atoms per final cluster when generating the
-        Sobol initialization.
+        goodlattice initialization.
 
     rng : np.random.Generator, optional
 
@@ -162,7 +185,7 @@ def _clusterisation(
 
         K = N * n_per_cluster
 
-        targets = _sobol_warmstart(K, D)
+        targets = _goodlattice_warmstart(K, D)
 
         if targets.ndim == 2:
             targets = targets[None, :, :]

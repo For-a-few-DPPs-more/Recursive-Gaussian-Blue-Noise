@@ -437,3 +437,63 @@ def gaussian_filter1d(x, sigma, truncate=4.0):
     )
 
     return windows @ kernel
+
+def kdtree_order(X: NDArray, G: int | None = None) -> NDArray:
+    """
+    Reorder points into a dyadic multi-cell grid via recursive median splits.
+    Returns array of shape (G,)*D + (n_cells, D).
+
+    The algorithm performs K*D successive median splits (K = log2(G)),
+    cycling through the D spatial axes.  After all splits the index array
+    has shape (2,)* (K*D) + (n_cells,).  A careful transpose groups the
+    bits belonging to each spatial dimension, yielding the desired
+    (G,)*D + (n_cells,) layout.  Finally the points themselves are
+    gathered.
+    """
+    X = np.asarray(X, dtype=np.float64)
+    N, D = X.shape
+
+    if G is None:
+        G = 2 ** int(np.log2(N ** (1 / D)) + 1e-6)
+
+    cell_size = G ** D
+    assert N % cell_size == 0, (
+        f"N={N} not divisible by G**D={cell_size} (G={G})"
+    )
+    n_cells = N // cell_size
+    K = int(np.log2(G))
+    assert 1 << K == G, "G must be a power of two"
+
+    # Start with a flat index array of shape (N,)
+    idx = np.arange(N)
+
+    # Perform K*D successive median splits, cycling axes
+    for step in range(K * D):
+        axis = step % D
+        # Current last dimension is the one we split
+        size = idx.shape[-1]
+        mid = size // 2
+        assert size % 2 == 0, "size must stay even"
+
+        # Gather coordinates along the current spatial axis
+        X_curr = X[idx, axis]                       # (..., size)
+        # Partition so that the first mid elements are the smaller ones
+        p = np.argpartition(X_curr, mid - 1, axis=-1)
+        idx = np.take_along_axis(idx, p, axis=-1)
+        # Split into two halves → new last dimension of size 2
+        idx = idx.reshape(*idx.shape[:-1], 2, mid)
+
+    # idx now has shape (2,)*(K*D) + (n_cells,)
+    # We want to regroup the K bits of each spatial dimension together.
+    # Original bit order:  dim0_level0, dim1_level0, ..., dimD-1_level0,
+    #                      dim0_level1, ...
+    # Desired order:       all levels of dim0, all levels of dim1, ..., then cells
+    transpose_axes = [d + k * D for d in range(D) for k in range(K)] + [K * D]
+    idx = idx.transpose(transpose_axes)
+
+    # Now idx.shape == (2,)* (K*D) + (n_cells,)
+    # Reshape the first K*D axes into (G,)*D
+    idx = idx.reshape(*(G,) * D, n_cells)
+
+    # Gather the actual points → shape (G,)*D + (n_cells, D)
+    return X[idx]

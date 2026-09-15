@@ -84,9 +84,11 @@ x = blue.sample_points(N, D, method="rgbn") #(N, D)
 | `gaussian`   | original Gaussian-Blue-Noise sampler (high quality, slow), A. G. M. Ahmed, J. Ren, and P. Wonka.  |
 | `rgbn`         | Recursive Gaussian-Blue-Noise (speed-up GBN with robust approximations)      |
 | `nufft`        | Non-Uniform FFT (speed-up spectral methods with fast fourier transform)    |
+| `cstit`        | STIT inspired clustering (clusters replace complex polygon geometry)       |
 | `latjit`        | fast and simple lattice jittering        |
-
 ---
+
+Note that the three last methods all require N to be a power of 2.
 
 ## Alternative Samplers
 
@@ -96,17 +98,6 @@ x = blue.sample_points(N, D, method="rgbn") #(N, D)
 x = blue.sobol(N, D) #(N, D)
 ```
 Low-discrepancy quasi-random sequence. 
-
-### Clusters
-
-```python
-# Raw clusters
-cl = blue.sample_clusters(N, D) #(N, K, D)
-blue.plot_clusters(cl) 
-
-# Convert to point set
-x = blue.cluster2points(cl) #(N, m, D)
-```
 
 ### STIT Tessellations (2D only) 🧩
 
