@@ -23,11 +23,11 @@ def _nufft_pipeline(
     N: int,
     D: int,
     lr: float = 1.0,
-    kfrac: float = 0.8,
+    kfrac: float = 1.0,
     warmstart: NDArray | None = None,
     verbose: int = 1,
     n_iter: int = 200,
-    regrid_every: int = 50,
+    regrid_every: int = 30,
 ) -> NDArray:
     """
     Generalised NUFFT-style point set optimisation.
@@ -69,7 +69,7 @@ def _nufft_pipeline(
         f ** 2 for f in jnp.meshgrid(*([freqs] * D), indexing="ij")
     )
     MASK = (freq_r2 > K_RADIUS ** 2) | (freq_r2 <= 0.5)
-    K_WEIGHT = 1.0 / freq_r2
+    K_WEIGHT = (1.0 / freq_r2)
     K_WEIGHT = K_WEIGHT.at[MASK].set(0.0)
     # Broadcast-ready over cells: (G,)*D + (1,)
     K_WEIGHT = K_WEIGHT[..., None]
@@ -89,8 +89,8 @@ def _nufft_pipeline(
         )
         # dens: (G,)*D + (n_cells,)
         F = jnp.fft.fftn(dens, axes=AXES)
-        loss = jnp.sum((jnp.abs(F) ** 3) * K_WEIGHT)
-        grad_F = K_WEIGHT * jnp.abs(F) * F
+        loss = jnp.sum((jnp.abs(F) ** 2) * K_WEIGHT)
+        grad_F = K_WEIGHT * F
         grad_dens = jnp.fft.ifftn(grad_F, axes=AXES).real   # (G,)*D + (n_cells,)
 
         def _bwd(acc, shift):
@@ -117,7 +117,7 @@ def _nufft_pipeline(
             x_new = torus_wrap(x - (g / rms) * adap)
 
             improved = loss < prev
-            adap = jnp.where(improved, adap * 1.03, adap * 0.8)
+            adap = jnp.where(improved, adap * 1.01, adap * 0.9)
 
             return (x_new, adap, loss), None
 
@@ -148,58 +148,52 @@ def _nufft_pipeline(
         return jnp.asarray(kdtree_order(pts, G=G))
 
 
-    log(
-        f"[nufft] {D}D | G={G} | n_cells={n_cells} | {N} pts | "
-        f"regrid every {regrid_every}"
-    )
+    log(f"[nufft] {D}D  | {N} pts | {n_iter} iters ")
 
     t0 = time.time()
     x_grid = to_grid(x_np)
-    log(f"initial kdtree {time.time() - t0:.2f}s")
+    log(f"kdtree built (elapsed {time.time() - t0:.2f}s)")
+    loss0 = _loss(x_grid)
+    log(f"loss 0: {loss0:.2e}")
+
+    adap = jnp.asarray(base_delta, dtype=x_grid.dtype)
+    prev_loss = jnp.asarray(jnp.inf)
+    
+    n_steps = regrid_every
+
+    x_grid, adap, prev_loss = _run_chunk(
+        x_grid, n_steps, adap, prev_loss
+    )
+
+    flat = np.asarray(x_grid).reshape(-1, D)
+
+    # Main optimisation loop
+    t0 = time.time()
 
     adap = jnp.asarray(base_delta, dtype=x_grid.dtype)
     prev_loss = jnp.asarray(jnp.inf)
 
-    # Warm-start phase
-    t0 = time.time()
-    loss0 = _loss(x_grid)
-
-    for start in range(0, 20, 5):
-        x_grid, adap, prev_loss = _run_chunk(
-            x_grid, 5, adap, prev_loss
-        )
-
-        flat = np.asarray(x_grid).reshape(-1, D)
-        x_grid = to_grid(flat)
-
-    loss1 = _loss(x_grid)
-    loss1.block_until_ready()
-
-    log(
-        f"done warmstart in {time.time() - t0:.2f}s | "
-        f"loss {float(loss0):.2e} → {float(loss1):.2e}"
-    )
-
-    # Main optimisation loop
-    t0 = time.time()
-    loss0 = _loss(x_grid)
-
     for start in range(0, n_iter, regrid_every):
-        n_steps = min(regrid_every, n_iter - start)
+
+        log(f"loss {start + regrid_every}: {_loss(x_grid):.2e}")
+        x_grid = to_grid(flat)
+        
+        n_steps = regrid_every
 
         x_grid, adap, prev_loss = _run_chunk(
             x_grid, n_steps, adap, prev_loss
         )
 
         flat = np.asarray(x_grid).reshape(-1, D)
-        x_grid = to_grid(flat)
+
+    x_grid = to_grid(flat)
 
     loss2 = _loss(x_grid)
     loss2.block_until_ready()
 
     log(
         f"done in {time.time() - t0:.2f}s | "
-        f"loss {float(loss1):.2e} → {float(loss2):.2e}"
+        f"loss {float(loss0):.2e} → {float(loss2):.2e}"
     )
 
     return np.asarray(x_grid).reshape(-1, D)

@@ -245,7 +245,7 @@ def sample_points(
             "Non power of 2 case would be much slower for the kdtree part and is not implemented "
         )
         return _nufft_pipeline(N, D, lr=lr, warmstart=x,
-                               verbose=verbose, n_iter=10 * n_iter)
+                               verbose=verbose, n_iter= 20 * n_iter)
 
     if verbose >= 1:
         print(f"✦ {D}D blue-noise pipeline — sampling {N:,} points")

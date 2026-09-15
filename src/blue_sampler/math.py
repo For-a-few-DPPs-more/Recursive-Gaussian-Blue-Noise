@@ -267,21 +267,33 @@ def structure_factor(
         c = np.ones(N, dtype=np.complex128)
 
         if D == 1:
-            fk = finufft.nufft1d1(x[0].copy(), c, n_modes, eps=1e-8, isign=1)
+            fk = finufft.nufft1d1(x[0].copy(), c, n_modes, eps=1e-7, isign=1)
             # mode indices
             n = np.arange(-(n_modes // 2), n_modes - (n_modes // 2))
             kint = n[:, None]
         elif D == 2:
             fk = finufft.nufft2d1(x[0].copy(), x[1].copy(), c, (n_modes, n_modes),
-                                 eps=1e-8, isign=1)
+                                 eps=1e-7, isign=1)
             n = np.arange(-(n_modes // 2), n_modes - (n_modes // 2))
             nx, ny = np.meshgrid(n, n, indexing="ij")
             kint = np.stack([nx.ravel(), ny.ravel()], axis=1)
             fk = fk.ravel()
         else:  # D == 3
-            fk = finufft.nufft3d1(x[0].copy(), x[1].copy(), x[2].copy(), c,
-                                 (n_modes, n_modes, n_modes),
-                                 eps=1e-8, isign=1)
+            max_chunk = 400_000
+            fk = np.zeros((n_modes, n_modes, n_modes), dtype=np.complex128)
+
+            for start in range(0, N, max_chunk):
+                stop = min(start + max_chunk, N)
+
+                fk += finufft.nufft3d1(
+                    x[0][start:stop].copy(),
+                    x[1][start:stop].copy(),
+                    x[2][start:stop].copy(),
+                    c[start:stop].copy(),
+                    (n_modes, n_modes, n_modes),
+                    eps=1e-7,
+                    isign=1,
+                )
             n = np.arange(-(n_modes // 2), n_modes - (n_modes // 2))
             nx, ny, nz = np.meshgrid(n, n, n, indexing="ij")
             kint = np.stack([nx.ravel(), ny.ravel(), nz.ravel()], axis=1)
@@ -438,7 +450,7 @@ def gaussian_filter1d(x, sigma, truncate=4.0):
 
     return windows @ kernel
 
-def kdtree_order(X: NDArray, G: int | None = None) -> NDArray:
+def kdtree_order(X: np.ndrray, G: int | None = None) -> np.ndarray:
     """
     Reorder points into a dyadic multi-cell grid via recursive median splits.
     Returns array of shape (G,)*D + (n_cells, D).
