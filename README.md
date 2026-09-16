@@ -10,9 +10,6 @@
 
 Stealthy point patterns exhibit vanishing density fluctuations at low frequencies, making them particularly suited for **Monte Carlo** integration, **image stippling**, and any application requiring well-distributed, low-discrepancy points. 
 
-The main blue-noise samplers (**RGBN** and **NUFFT**) offer **linear** complexity in the number of points.  
-They can generate e.g. 1 million 2D (resp 3D) points in under 10 minutes (resp 30 minutes) on a standard CPU, and up to 30× faster on GPU (30s resp 1 minute). 
-
 ---
 
 ## 📦 Installation
@@ -75,7 +72,8 @@ x = blue.sample_points(N, D, method="rgbn") #(N, D)
 | `latjit`        | fast and simple lattice jittering        |
 ---
 
-Note that the three last methods all require N to be a power of 2.
+The main blue-noise samplers (**RGBN** and **NUFFT**) offer **linear** complexity in the number of points.  
+They can generate e.g. 1 million 2D (resp 3D) points in under 10 minutes (resp 30 minutes) on a standard CPU, and up to 30× faster on GPU (30s resp 1 minute). Note that the three last methods all require N to be a power of 2.
 
 ## Alternative Samplers
 
