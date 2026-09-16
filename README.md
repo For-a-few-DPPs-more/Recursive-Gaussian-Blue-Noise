@@ -15,16 +15,7 @@ They can generate e.g. 1 million 2D (resp 3D) points in under 10 minutes (resp 3
 
 > **Note on adaptative sampling**: The sampling methods implemented here support adaptive sampling from a target distribution. This feature is still experimental beyond 2d distributions
  
-> **Note on structure factor**: The estimation of sf assumes that the points domain is the unit hypercube and uses the standard `scattering intensity`. For ultra-stealthy point patterns with S(k) ≲ 1e-10, enable 64-bit precision in JAX before computing the structure factor: jax.config.update("jax_enable_x64", True)
-
----
-
-# Positioning and scope
-
-One can find extensive Blue-noise and hyperuniform sampling methods in the literature, all involving different trade-offs between spectral quality, computational cost, dimensionality, hardware requirements, implementation complexity, and support for adaptive sampling. To briefly cite some of them: **Perturbed lattices** are simple and fast; **Poisson-disk** is a mature and popular tool; **Void-and-Cluster masks** offer instant execution but are restricted to regular grids; **Relaxation methods** (such as Lloyd or CCVT) are classic but slow to converge and prone to structural artifacts; **Optimal Transport** (BNOT) provides natural adaptive sampling but is computationally heavy; **Gaussian blue noise** (GBN) achieves ultra-high spatial quality but has quadratic complexity; and **Fast reciprocal space Correlator** (FReSCo) combines ultra-high quality with near-linear complexity, though it requires installing heavy external dependencies or familiarity with docker containers.
-
-blue-sampler is not intended as a universal replacement for these methods. It is a lightweight Python framework for experiments on blue noise and hyperuniformity, targeting simple installation (native Python code) and device flexibility (CPU/GPU), high spectral quality (achieving the commonly accepted "stealthy" criterions $S(k) \lesssim 10^{-3} - 10^{-4}$), adaptive sampling, and support for 3D and higher dimensions.
-
+> **Note on structure factor**: The estimation of sf assumes that the points domain is the unit hypercube and uses the standard `scattering intensity`. 
 
 ---
 
@@ -185,6 +176,14 @@ The algorithms and mathematical tools implemented in **blue-sampler** are based 
 
 - **Sobol sequences**  
   Wrapped from `scipy.stats.qmc.Sobol` (SciPy).
+
+---
+
+# Positioning and scope
+
+One can find extensive Blue-noise and hyperuniform sampling methods in the literature, all involving different trade-offs between spectral quality, computational cost, dimensionality, hardware requirements, implementation complexity, and support for adaptive sampling. To briefly cite some of them: **Perturbed lattices** are simple and fast; **Poisson-disk** is a mature and popular tool; **Void-and-Cluster masks** offer instant execution but are restricted to regular grids; **Relaxation methods** (such as Lloyd or CCVT) are classic but slow to converge and prone to structural artifacts; **Optimal Transport** (BNOT) provides natural adaptive sampling but is computationally heavy; **Gaussian blue noise** (GBN) achieves ultra-high spatial quality but has quadratic complexity; and **Fast reciprocal space Correlator** (FReSCo) combines ultra-high quality with near-linear complexity, though it requires installing heavy external dependencies or familiarity with docker containers.
+
+blue-sampler is not intended as a universal replacement for these methods. It is a lightweight Python framework for experiments on blue noise and hyperuniformity, targeting simple installation (native Python code) and device flexibility (CPU/GPU), high spectral quality (achieving the commonly accepted "stealthy" criterions $S(k) \lesssim 10^{-3} - 10^{-4}$), adaptive sampling, and support for 3D and higher dimensions.
 
 ---
 
