@@ -43,7 +43,7 @@ def _bruteforce_pipeline(
 
     lr_table = {2: 0.4, 3: 0.1, 4: 0.05, 5: 0.01}
     lr    = lr * lr_table.get(D, 0.001) / S
-    Niter = 50*n_iter if high_D else 100*n_iter
+    Niter = n_iter//2 if high_D else n_iter
 
     if high_D:
         a = 2.0 * np.pi

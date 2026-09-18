@@ -2,288 +2,197 @@ from __future__ import annotations
 
 import itertools
 import time
-from functools import partial
-
-import math
+from typing import Optional
 
 import numpy as np
 from numpy.typing import NDArray
-import jax
-import jax.numpy as jnp
-import optax
-from squarenet import SquareNet
-
-from ..math import torus_delta, torus_wrap
-
-
-def pad_fit_transform(x: NDArray, sn: SquareNet) -> NDArray:
-    """
-    SquareNet can wright arbitrary points as a grid.
-    here we need to pad points first so that they are 
-    as many points as grid cells. Empty cells are filed with NaN.
-    """
-    x = np.array(x)  
-    x = x[np.isfinite(x).all(axis = -1)]
-    D = x.shape[-1]
-    x = x.reshape(-1, D)
-    x_paded = np.random.rand(sn.N, D)
-    x_paded[:len(x)] = x
-    order = np.random.permutation(np.arange(sn.N))
-    sn.fit(x_paded[order], method="ultimate")
-    if len(x) < sn.N:
-        x_paded[len(x):] = np.nan
-    x_new = sn.map(x_paded[order])
-    return x_new #(G, ..., G, D)
+from ..math import kdtree_order
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Helpers (équivalents NumPy des fonctions de ..math)
 # ---------------------------------------------------------------------------
 
-def get_shifts(radius: int, dims: int) -> jnp.ndarray:
-    """
-    Return all integer lattice shifts inside the L2 ball of given radius.
+def torus_delta(x: NDArray) -> NDArray:
+    """Distance minimale sur le tore [0, 1)^D (version vectorisée)."""
+    return x - np.round(x)
 
-    Parameters
-    ----------
-    radius : int
-        Ball radius (inclusive).
-    dims : int
-        Number of dimensions.
 
-    Returns
-    -------
-    jnp.ndarray
-        Shape ``(S, dims)`` integer array of shift vectors.
-    """
+def torus_wrap(x: NDArray) -> NDArray:
+    """Ramène les coordonnées dans [0, 1)."""
+    return np.mod(x, 1.0)
+
+
+# ---------------------------------------------------------------------------
+# Shifts
+# ---------------------------------------------------------------------------
+
+def get_shifts(radius: int, dims: int) -> NDArray:
     ranges = [range(-radius, radius + 1)] * dims
     shifts = [
         s for s in itertools.product(*ranges)
-        if sum(x ** 2 for x in s) <= radius ** 2
+        if sum(v * v for v in s) <= radius * radius
     ]
-    return jnp.array(shifts, dtype=jnp.int32)
+    return np.asarray(shifts, dtype=np.int32)
 
 
 # ---------------------------------------------------------------------------
-# Main entry-point
+# Pipeline principal
 # ---------------------------------------------------------------------------
 
 def _nufft_pipeline(
     N: int,
     D: int,
     lr: float = 1.0,
-    kfrac: float = 0.3,
-    warmstart: NDArray | None = None,
+    kfrac: float = 1.0,
+    warmstart: Optional[NDArray] = None,
     verbose: int = 1,
-    n_iter: int = 300,
+    n_iter: int = 200,
+    regrid_every: int = 30,
 ) -> NDArray:
-    """Generate a low-discrepancy point set in $[0, 1)^D$ via 
-    NUFFT (= non uniform fast fourier) spectral energy minimisation.
-
-    Parameters
-    ----------
-    N : int
-        Number of points to generate.
-    D : int
-        Dimension of the space.
-    lr : float, default=1.0
-        Learning rate scaling multiplier.
-    kfrac : float, default=0.3
-        Frequency cut-off fraction.
-        Energy is minimised up to wavevectors K s.t. ||K|| = kfrac*Kmax.
-    warmstart : NDArray, optional
-        Initial point coordinates of shape `(N, D)`. Default is random.
-    verbose : bool, default=True
-        If True, logs optimization progress.
-    n_iter : int, default=300
-        Number of gradient descent iterations.
-
-    Returns
-    -------
-    NDArray
-        Optimised point coordinates array of shape `(N, D)`.
     """
-    G = math.ceil(N ** (1.0 / D))
-    true_G = N ** (1.0/D)
+    Generalised NUFFT-style point set optimisation (version pure NumPy).
+    """
+    # Taille de grille (puissance de 2)
+    G = 2 ** int(np.log2(N ** (1.0 / D)) + 1e-6)
 
-    # ------------------------------------------------------------------
-    # Logging helper
-    # ------------------------------------------------------------------
-    def log(msg: str) -> None:
-        if verbose >=1:
-            print(msg)
+    if D == 2:
+        r = 5
+    elif D == 3:
+        r = 4
+    else:  # D >= 4
+        r = 3
 
-    # ------------------------------------------------------------------
-    # Hyper-parameters & Grid setup
-    # ------------------------------------------------------------------
-    K_RADIUS = max(1, int(true_G*kfrac))
+    shifts = get_shifts(r, D)
+    cell_size = G ** D
+    assert N % cell_size == 0, (
+        f"N={N} must be divisible by G**D with G power of 2 "
+        f"(got G={G}, cell_size={cell_size})"
+    )
+    n_cells = N // cell_size
+
+    log = (lambda msg: print(msg)) if verbose >= 1 else (lambda msg: None)
+
+    K_RADIUS = max(1, int(G * kfrac))
     SIGMA2 = (1.0 / G) ** 2
-    learning_rate = (0.1 / G * lr) 
-
-    # Coordinate grid in [0, 1)^D (dynamically scaled for D dimensions)
-    g_axis = jnp.linspace(0.0, 1.0, G, endpoint=False)
-    mesh = jnp.meshgrid(*([g_axis] * D), indexing="ij")
-    GRID = jnp.stack(mesh, axis=-1)
-
-    # Frequency mask and weights
-    freqs = jnp.fft.fftfreq(G) * G
-    freq_mesh = jnp.meshgrid(*([freqs] * D), indexing="ij")
-    freq_r2 = sum(f ** 2 for f in freq_mesh)
-    MASK = (freq_r2 <= K_RADIUS ** 2) & (freq_r2 > 0.0)
-
-    # Avoid division by zero if MASK is empty (e.g., very small G)
-    min_freq = freq_r2[MASK].min() if jnp.any(MASK) else 1.0
-    K_WEIGHT = 1.0 / (freq_r2 + 0.01 * min_freq)
-
-    # Dynamic FFT setup over spatial axes
+    base_delta = 0.01 / G * lr
     AXES = tuple(range(D))
-    
-    def fft(x):
-        return jnp.fft.fftn(x, axes=AXES)
-        
-    def ifft(x):
-        return jnp.fft.ifftn(x, axes=AXES)
-    
-    def nan_to_0(x):
-        return jnp.nan_to_num(x)
+
+    # Grille spatiale
+    g_axis = np.linspace(0.0, 1.0, G, endpoint=False)
+    GRID = np.stack(
+        np.meshgrid(*([g_axis] * D), indexing="ij"),
+        axis=-1,
+    )[..., None, :]  # shape (G,)*D + (1, D)
+
+    # Poids fréquentiels
+    freqs = np.fft.fftfreq(G) * G
+    freq_grids = np.meshgrid(*([freqs] * D), indexing="ij")
+    freq_r2 = sum(f ** 2 for f in freq_grids)
+
+    MASK = (freq_r2 > K_RADIUS ** 2) | (freq_r2 <= 0.01)
+    K_WEIGHT = np.where(MASK, 0.0, 1.0 / freq_r2)
+    K_WEIGHT = K_WEIGHT[..., None]  # broadcast sur les cellules
 
     # ------------------------------------------------------------------
-    # Loss + gradient
+    # Loss + gradient (manuel)
     # ------------------------------------------------------------------
-    def _loss_and_grad(
-        x_grid: jnp.ndarray,
-        shifts: jnp.ndarray,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        """Forward + backward pass for the D-Dimensional spectral energy."""
+    def _loss_and_grad(x_grid: NDArray, shifts: NDArray):
+        # x_grid : (G,)*D + (n_cells, D)
 
-        def _forward(acc, shift):
-            rolled = jnp.roll(x_grid, shift, axis=AXES)
+        # Forward : densité
+        dens = np.zeros((G,) * D + (n_cells,), dtype=x_grid.dtype)
+        for shift in shifts:
+            rolled = np.roll(x_grid, shift, axis=AXES)
             delta = torus_delta(GRID - rolled)
-            dist2 = jnp.sum(delta ** 2, axis=-1)
-            return acc + nan_to_0(jnp.exp(-dist2 / SIGMA2)), None
+            dens_contrib = np.exp(-np.sum(delta ** 2, axis=-1) / SIGMA2)
+            dens += dens_contrib
 
-        density, _ = jax.lax.scan(_forward, jnp.zeros(tuple([G] * D)), shifts)
+        # FFT + loss
+        F = np.fft.fftn(dens, axes=AXES)
+        loss = np.sum((np.abs(F) ** 3) * K_WEIGHT)
 
-        F = fft(density)
-        amps = (jnp.abs(F) ** 3) * K_WEIGHT
-        
-        mask_sum = jnp.maximum(MASK.sum(), 1.0) # Avoid division by zero
-        loss = jnp.sum(jnp.where(MASK, amps, 0.0)) / mask_sum
+        # Gradient dans le domaine fréquentiel
+        grad_F = K_WEIGHT * F * np.abs(F)
+        grad_dens = np.fft.ifftn(grad_F, axes=AXES).real
 
-        grad_F = (3.0 / mask_sum) * MASK * K_WEIGHT * jnp.abs(F) * F
-        
-        # Generalised scaling factor: G**D instead of hardcoded G**2
-        grad_density = (G ** D) * ifft(grad_F).real
-
-        def _backward(acc_grad, shift):
-            rolled = jnp.roll(x_grid, shift, axis=AXES)
+        # Backward
+        grad_x = np.zeros_like(x_grid)
+        for shift in shifts:
+            rolled = np.roll(x_grid, shift, axis=AXES)
             delta = torus_delta(GRID - rolled)
-            dist2 = jnp.sum(delta ** 2, axis=-1, keepdims=True)
-            local_exp = jnp.exp(-dist2 / SIGMA2)
-            grad_pixel = grad_density[..., None] * (2.0 / SIGMA2) * nan_to_0(local_exp * delta)
-            return acc_grad + jnp.roll(grad_pixel, -shift, axis=AXES), None
+            dist2 = np.sum(delta ** 2, axis=-1, keepdims=True)
+            gpix = grad_dens[..., None] * np.exp(-dist2 / SIGMA2) * delta
+            grad_x += np.roll(gpix, -np.asarray(shift), axis=AXES)
 
-        grad_x, _ = jax.lax.scan(_backward, jnp.zeros_like(x_grid), shifts)
         return loss, grad_x
 
     # ------------------------------------------------------------------
-    # JIT-compiled optimisation loop
+    # Un chunk d'optimisation (remplace le scan jitté)
     # ------------------------------------------------------------------
-    @partial(jax.jit, static_argnums=(1,2))
-    def _run_optimization(
-        x_init: jnp.ndarray,
-        n_steps: int,
-        learning_rate: float,
-        shifts: jnp.ndarray,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        optimizer = optax.adam(learning_rate)
+    def _run_chunk(x_init: NDArray, n_steps: int, adap: float, prev_loss: float):
+        x = x_init.copy()
+        for _ in range(n_steps):
+            loss, g = _loss_and_grad(x, shifts)
+            rms = np.sqrt(np.mean(g ** 2) + 1e-30)
+            x = torus_wrap(x - (g / rms) * adap)
 
-        def _step(carry, _):
-            x, opt_state = carry
-            loss, grads = _loss_and_grad(x, shifts)
-            updates, opt_state = optimizer.update(grads, opt_state)
-            x_new = torus_wrap(x + updates)
-            return (x_new, opt_state), loss
+            improved = loss < prev_loss
+            adap = adap * 1.01 if improved else adap * 0.9
+            prev_loss = loss
 
-        opt_state = optimizer.init(x_init)
-        (x_final, _), losses = jax.lax.scan(
-            _step, (x_init, opt_state), None, length=n_steps
-        )
-        return x_final, losses
-    
-    # ------------------------------------------------------------------
-    # Shift kernels (adaptative heuristics per dimension)
-    # ------------------------------------------------------------------
-    if D == 2:
-      r_warmup = 10
-      r_final  = 7
-    if D == 3:
-      r_warmup = 5
-      r_final  = 5
-    if D == 4:
-      r_warmup = 4
-      r_final  = 4
-    if D >= 5:
-      r_warmup = 3
-      r_final  = 3
-    
-    shifts_warmup = get_shifts(r_warmup, D)
-    shifts_final  = get_shifts(r_final, D)
+        return x, adap, prev_loss
+
+    def _loss(x: NDArray) -> float:
+        return float(_loss_and_grad(x, shifts)[0])
 
     # ------------------------------------------------------------------
-    # Initial points
+    # Initialisation
     # ------------------------------------------------------------------
     if warmstart is not None:
         if warmstart.shape != (N, D):
-            raise ValueError(
-                f"warmstart must have shape ({N}, {D}), got {warmstart.shape}."
-            )
-        x_np = warmstart.astype(np.float32)
+            raise ValueError(f"warmstart must be ({N}, {D}), got {warmstart.shape}")
+        x_np = warmstart.astype(np.float64)
     else:
-        x_np = np.random.default_rng(0).random((N, D)).astype(np.float32)
+        x_np = np.random.rand(N, D).astype(np.float64)
 
-    gridshape = tuple([G] * D)
-    sn = SquareNet(gridshape=gridshape, backend="jax", verbose=0, max_iter = 300)
+    def to_grid(pts: NDArray) -> NDArray:
+        return kdtree_order(pts, G=G)
 
-    # ------------------------------------------------------------------
-    # Stage 1 – initial gridification
-    # ------------------------------------------------------------------
-    log(f"[nufft_sampling] {D}D | grid {'×'.join([str(G)] * D)} | {N} points")
-    log("[1/4] Initial gridification…")
+    log(f"[nufft] {D}D  | {N} pts | {n_iter} iters")
+
     t0 = time.time()
-    x_grid = pad_fit_transform(x_np, sn)
-    log(f"      done in {time.time() - t0:.2f}s")
+    x_grid = to_grid(x_np)
+    log(f"kdtree built (elapsed {time.time() - t0:.2f}s)")
+    loss0 = _loss(x_grid)
+    log(f"loss 0: {loss0:.2e}")
 
-    # ------------------------------------------------------------------
-    # Stage 2 – warmup
-    # ------------------------------------------------------------------
-    log("[2/4] Warmup (30 steps)…")
+    adap = float(base_delta)
+    prev_loss = np.inf
+
+    # Premier chunk
+    x_grid, adap, prev_loss = _run_chunk(x_grid, regrid_every, adap, prev_loss)
+    flat = x_grid.reshape(-1, D)
+
+    # Boucle principale
     t0 = time.time()
-    x_grid, losses_warmup = _run_optimization(x_grid, n_iter//2, learning_rate, shifts_warmup)
-    losses_warmup.block_until_ready()
+    adap = float(base_delta)
+    prev_loss = np.inf
+
+    for start in range(0, n_iter, regrid_every):
+        log(f"loss {start + regrid_every}: {_loss(x_grid):.2e}")
+        x_grid = to_grid(flat)
+
+        x_grid, adap, prev_loss = _run_chunk(
+            x_grid, regrid_every, adap, prev_loss
+        )
+        flat = x_grid.reshape(-1, D)
+
+    x_grid = to_grid(flat)
+    loss2 = _loss(x_grid)
+
     log(
-        f"      done in {time.time() - t0:.2f}s | "
-        f"loss {losses_warmup[0]:.4f} → {losses_warmup[-1]:.4f}"
+        f"done in {time.time() - t0:.2f}s | "
+        f"loss {loss0:.2e} → {loss2:.2e}"
     )
 
-    # ------------------------------------------------------------------
-    # Stage 3 – re-gridification
-    # ------------------------------------------------------------------
-    log("[3/4] Re-gridification…")
-    t0 = time.time()
-    pts_flat = np.array(x_grid).reshape(-1, D)
-    x_grid = pad_fit_transform(pts_flat, sn)
-    log(f"      done in {time.time() - t0:.2f}s")
-
-    # ------------------------------------------------------------------
-    # Stage 4 – final optimisation
-    # ------------------------------------------------------------------
-    log(f"[4/4] Final optimisation ({n_iter} steps)…")
-    t0 = time.time()
-    x_final, losses_final = _run_optimization(x_grid, n_iter, 0.2*learning_rate, shifts_final)
-    x_final.block_until_ready()
-    log(
-        f"      done in {time.time() - t0:.2f}s | "
-        f"loss {losses_final[0]:.4f} → {losses_final[-1]:.4f}"
-    )
-    x_final = np.array(x_final).reshape(-1, D)
-    return x_final[np.isfinite(x_final).all(axis = -1)]
+    return x_grid.reshape(-1, D)

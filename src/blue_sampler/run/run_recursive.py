@@ -34,8 +34,8 @@ from .run_bruteforce import _bruteforce_pipeline
 _PRESETS = {
     2: dict(spatial_radius=7, spectral_radius=7, LR_spatial=0.100, LR_spectral=0.1, expension_factor=0.3, S=1.0),
     3: dict(spatial_radius=5, spectral_radius=5, LR_spatial=0.030, LR_spectral=0.1, expension_factor=0.3, S=1.0),
-    4: dict(spatial_radius=3, spectral_radius=3, LR_spatial=0.010, LR_spectral=0.1, expension_factor=1.0, S=0.5),
-    5: dict(spatial_radius=3, spectral_radius=3, LR_spatial=0.003, LR_spectral=0.1, expension_factor=1.5, S=0.5),
+    4: dict(spatial_radius=4, spectral_radius=4, LR_spatial=0.010, LR_spectral=0.1, expension_factor=1.0, S=0.5),
+    5: dict(spatial_radius=4, spectral_radius=4, LR_spatial=0.003, LR_spectral=0.1, expension_factor=1.5, S=0.5),
 }
 
 # ── Core pipeline ─────────────────────────────────────────────────────────────
@@ -62,24 +62,23 @@ def _recursive_pipeline(
     """Recursive stealthy-sampling pipeline. Spawns child pipelines when N is large."""
     try:
         has_target = target is not None
-        is_root    = _is_root or (N <= 2_000) or (x is not None)
-        brute_thresh = 2000
+        is_root    = _is_root or (N <= 3_000) or (x is not None)
+        brute_thresh = 1000 if D == 2 else 3_000
+        brute_ITER = 600 if D == 2 else 60
         if x is None:
             x = np.random.rand(N, D)
         if has_target and D == 2:
             #spatial_radius = 8
             S = 0.5
-            is_root = is_root or N <= 5_000
-            brute_thresh = 750
-            N_ITER = 12
-            if is_root:
-                N_ITER = 24
+        if is_root:
+            N_ITER = 50
+
         ctx = logger.enter_level(N, D, N_ITER)
         Dsimp      = min(D, 3)
         IJK, _, Axes = grid_shape(N, D)
         Nsqrt      = N ** 0.5
         Ncbrt      = N ** (1.0 / D)
-        bruteforce = _bruteforce or (N <= brute_thresh) or D >= 6
+        bruteforce = _bruteforce or (N <= brute_thresh)
         sigma2     = S * 2.0 * (1.0 / Ncbrt) ** 2
         high_D     = sigma2 >= 0.03
 
@@ -184,7 +183,7 @@ def _recursive_pipeline(
             if bruteforce:
                 ctx.start()
                 x_pts = _bruteforce_pipeline(
-                    N, D, N_ITER, ctx = ctx, 
+                    N, D, brute_ITER, ctx = ctx, 
                     target=target, 
                 )(x)
                 x_pts   = prepare_points(np.asarray(x_pts), N, IJK, D)
@@ -215,7 +214,7 @@ def _recursive_pipeline(
             ctx.start()
             if bruteforce:
                 x_pts = _bruteforce_pipeline(
-                    N, D, N_ITER, ctx = ctx, 
+                    N, D, brute_ITER, ctx = ctx, 
                     target=target, 
                 )(xparent)
             else:

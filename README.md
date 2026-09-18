@@ -8,12 +8,23 @@
 
 **Generate large stealthy point patterns** on the unit torus $[0, 1)^D$. 📐
 
-Stealthy point patterns exhibit vanishing density fluctuations at low frequencies, making them particularly suited for **Monte Carlo** integration 🎯, **image stippling**, and any application requiring well-distributed, low-discrepancy points. 
+Stealthy point patterns exhibit vanishing density fluctuations at low frequencies, making them particularly suited for **Monte Carlo** integration, **image stippling**, and any application requiring well-distributed, low-discrepancy points. 
 
-The main blue-noise samplers (**RGBN** and **NUFFT**) offer **linear** complexity in both the number of points and the dimension. ⚡  
-They can generate e.g. 1 million 2D points in under 15 minutes on a standard CPU, and up to 30× faster on GPU. 
+The main blue-noise samplers (**RGBN** and **NUFFT**) offer **linear** complexity in the number of points.  
+They can generate e.g. 1 million 2D (resp 3D) points in under 10 minutes (resp 30 minutes) on a standard CPU, and up to 30× faster on GPU (30s resp 1 minute). 
 
-> **Note**: Most implemented methods support adaptive sampling from a target distribution.
+> **Note on adaptative sampling**: The sampling methods implemented here support adaptive sampling from a target distribution. This feature is still experimental beyond 2d distributions
+ 
+> **Note on structure factor**: The estimation of sf assumes that the points domain is the unit hypercube and uses the standard `scattering intensity`. For ultra-stealthy point patterns with S(k) ≲ 1e-10, enable 64-bit precision in JAX before computing the structure factor: jax.config.update("jax_enable_x64", True)
+
+---
+
+# Positioning and scope
+
+One can find extensive Blue-noise and hyperuniform sampling methods in the literature, all involving different trade-offs between spectral quality, computational cost, dimensionality, hardware requirements, implementation complexity, and support for adaptive sampling. To briefly cite some of them: **Perturbed lattices** are simple and fast; **Poisson-disk** is a mature and popular tool; **Void-and-Cluster masks** offer instant execution but are restricted to regular grids; **Relaxation methods** (such as Lloyd or CCVT) are classic but slow to converge and prone to structural artifacts; **Optimal Transport** (BNOT) provides natural adaptive sampling but is computationally heavy; **Gaussian blue noise** (GBN) achieves ultra-high spatial quality but has quadratic complexity; and **Fast reciprocal space Correlator** (FReSCo) combines ultra-high quality with near-linear complexity, though it requires installing heavy external dependencies or familiarity with docker containers.
+
+blue-sampler is not intended as a universal replacement for these methods. It is a lightweight Python framework for experiments on blue noise and hyperuniformity, targeting simple installation (native Python code) and device flexibility (CPU/GPU), high spectral quality (achieving the commonly accepted "stealthy" criterions $S(k) \lesssim 10^{-3} - 10^{-4}$), adaptive sampling, and support for 3D and higher dimensions.
+
 
 ---
 
@@ -32,22 +43,30 @@ import blue_sampler as blue
 
 # Generate 10,000 2D blue-noise points
 x = blue.sample_points(N=10_000, D=2)
-blue.plot(x) 📈
+blue.plot(x) 
 
 # Structure factor
-blue.plot_structure_factor(x) 📊
+blue.plot_structure_factor(x) 
 
 # Image stippling
-x = blue.im2points("zebra.jpg") 🖼️ #return points
-x = blue.im2quads("vangogh.jpg")   #quadrilaterals
+x = blue.im2points("plots/zebra.jpg") #return points
+x = blue.im2quads("plots/vangogh.jpg")   #quadrilaterals
 ```
 
 ---
 
-## 🖼️ Example
+## 🖼️ Examples 
+
+Uniform sampling, Gaussian Blue Noise (3k points)
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/For-a-few-DPPs-more/rgbn/main/zebrapoints.png" width="650" alt="Blue noise stippling example">
+  <img src="https://raw.githubusercontent.com/For-a-few-DPPs-more/rgbn/main/plots/huniformpoints.png" width="45%" alt="Example">
+</p>
+
+Image stippling with points (20k points)
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/For-a-few-DPPs-more/rgbn/main/plots/montage.png" width="95%" alt="Example 1">
 </p>
 
 ---
@@ -62,52 +81,44 @@ x = blue.sample_points(N, D, method="rgbn") #(N, D)
 
 | Method         | Description                              |
 |----------------|------------------------------------------|
-| `rgbn`         | Recursive Gaussian-Blue Noise 🔄         |
-| `nufft`        | Non-Uniform Fast Fourier Transform 📈    |
-| `bruteforce`   | Base GBN sampler (best quality, slower)  |
-
+| `gaussian`   | original Gaussian-Blue-Noise sampler (high quality, slow), A. G. M. Ahmed, J. Ren, and P. Wonka.  |
+| `rgbn`         | Recursive Gaussian-Blue-Noise (speed-up GBN with robust approximations)      |
+| `nufft`        | Non-Uniform FFT (speed-up spectral methods with fast fourier transform)    |
+| `cstit`        | STIT inspired clustering (clusters replace complex polygon geometry)       |
+| `latjit`        | fast and simple lattice jittering        |
 ---
+
+Note that the three last methods all require N to be a power of 2.
 
 ## Alternative Samplers
 
-### Sobol sequence
+### Sobol sequence 📏
 
 ```python
 x = blue.sobol(N, D) #(N, D)
 ```
-Low-discrepancy quasi-random sequence. 📏
+Low-discrepancy quasi-random sequence. 
 
-### Clusters
-
-```python
-# Raw clusters
-cl = blue.sample_clusters(N, D) #(N, K, D)
-blue.plot_clusters(cl) 🔗
-
-# Convert to point set
-x = blue.cluster2points(cl) #(N, m, D)
-```
-
-### STIT Tessellations (2D only)
+### STIT Tessellations (2D only) 🧩
 
 ```python
 # Raw STIT tessellation (quadrilaterals)
 ts = blue.sample_tessels(N) #(N, 4, D=2)
-blue.plot_tessels(ts) 🧩
+blue.plot_tessels(ts) 
 
 # Convert to point set
 x = blue.tessel2points(ts) #(N, m, D=2)
 ```
 
-### Pinwheel Tilings (2D only)
+### Pinwheel Tilings (2D only) 𖣘
 
 ```python
 # Base pinwheel triangle
-pw0 = blue.pinwheel_base() 𖣘 #(3, D=2)
+pw0 = blue.pinwheel_base()  #(3, D=2)
 
 # Triangulation level 4
 pw4 = blue.pinwheel_transform(pw0, depth=4) #(4*5**depth, 3, D=2)
-blue.plot_polygons(pw4) 🔺
+blue.plot_polygons(pw4) 
 
 #===============================
 # Convert Pinwheel to point set:

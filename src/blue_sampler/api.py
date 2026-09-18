@@ -20,7 +20,7 @@ moment-matching problem.
 from __future__ import annotations
 
 import warnings
-
+from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 from typing import Literal
@@ -32,7 +32,7 @@ from .warm_start import _sobol_warmstart, _goodlattice_warmstart, _x_warmstart
 from .progress import ProgressLogger
 
 from .run.run_tessels import _tesselation
-from .run.run_clusters import _clusterisation
+from .run.run_clusters import _clusterisation, _cstit_pipeline
 
 from .grad.im2fields import _im2targ
 
@@ -42,7 +42,7 @@ from .momentum.momentum import _from_geometry
 
 from .viz import plot, plot_polygons
 
-BlueNoiseMethod = Literal["rgbn", "nufft", "bruteforce"]
+BlueNoiseMethod = Literal["rgbn", "nufft", "gaussian", "latjit", "cstit"]
 WarmstartMethod = Literal["Goodlattice", "Sobol", "Pinwheel"]
 ClusterMethod = Literal["Goodlattice", "Sobol", "Pinwheel"]
 
@@ -107,7 +107,7 @@ def sample_points(
     lr: float = 1.0,
     method: BlueNoiseMethod = "rgbn",
     warmstart: NDArray | WarmstartMethod | None = None,
-    n_iter: int = 6,
+    n_iter_scale: int = 6,
     targets: NDArray | None = None,
     verbose: int = 1,
 ) -> NDArray:
@@ -119,74 +119,118 @@ def sample_points(
     N : int, default 32768
         Number of output points.
     D : int, default 2
-        Spatial dimension. Fast for D=2–3, supported for D=4–5,
+        Spatial dimension. Fastest for D=2-3, supported for D=4-5,
         experimental for D≥6.
+
     lr : float, default 1.0
-        Global learning-rate multiplier applied to all internal step sizes.
-        Values above 1.0 converge faster but may overshoot and produce
-        less uniform patterns. Values below 1.0 slow convergence but can
-        improve final quality. The default of 1.0 works well in most cases;
-        only tune this if you have a specific speed/quality trade-off in mind.
+        Global multiplier for the learning-rate. A default is provided, but
+        fine tuning it might give better results
 
-    method : {"rgbn", "nufft", "bruteforce"}, default "rgbn"
+    method : {"gaussian", "rgbn", "nufft", "latjit", "cstit"}, default "rgbn"
         Sampling algorithm:
-
-        - ``"rgbn"``       — Recursive Gaussian Blue-Noise. Spatial loss,
-          truncated neighbourhood. Linear complexity, recommended for most uses.
-        - ``"nufft"``      — Non-Uniform Fast Fourier Transform. Spectral loss.
-          Good alternative for 2D; does **not** support a ``targets`` density.
-        - ``"bruteforce"`` — Exact GBN with no truncation. Best quality but
-          O(N²) cost. Automatically selected when N ≤ 2 000.
+        - ``"gaussian"`` — Exact Gaussian Blue Noise (GBN), with no
+                  neighbourhood truncation. High quality but slow for large N.
+        - ``"rgbn"``     — Recursive Gaussian Blue Noise. Fast spatial
+          optimisation with a truncated neighbourhood. Recommended.
+        - ``"nufft"``    — Spectral optimisation using a Non-Uniform Fast
+          Fourier Transform.
+        - ``"cstit"``    — Optimisation based on a stable-partition
+          criterion, inspired by the fair STIT method.
+        - ``"latjit"``   — Randomly jittered lattice. Fast and simple.
 
     warmstart : {None, "Goodlattice", "Sobol", "Pinwheel", ndarray of shape (N, D)}, default None
-        Initial point configuration before optimisation:
+        Initial point configuration. See :func:`blue.warmstart_points`.
 
-        - ``None``        — default random / recursive initialisation.
-        - ``"Goodlattice"``  — initialise with a random Goodlattice lattice
-        - ``"Sobol"``     — initialise with a Sobol low-discrepancy sequence
-          (requires ``scipy``). Recommended when N is a power of 2.
-        - ``"Pinwheel"``  — initialise with a pinwheel aperiodic tiling
-          (2D only). Falls back to Sobol for D > 2.
-        - ndarray         — use the provided array as the starting configuration.
-        
-    n_iter : int, default 6
-        Number of solver iterations. Each iteration runs 10 gradient steps
-        plus one structural gridification step (neighbour lookup).
-        More iterations yield better quality at the cost of runtime.
+    n_iter_scale : int, default 6
+        Global multiplier for the number of iterations. A default is provided, but
+        fine tuning it might give better results.
+
     targets : ndarray of shape (K, D) or str, optional
-        Atoms describing a target density for adaptive sampling.
-        Can also be a path to an image file, e.g. ``targets="zebra.jpg"``.
-        Not supported with ``method="nufft"``.
+        Target points defining a non-uniform density for adaptive
+        sampling. A path to an image file can also be given, e.g.
+        ``targets="zebra.jpg"``. Only supported with ``method="gaussian, rgbn or cstit"``.
+
     verbose : int, default 1
-        Verbosity level: ``0`` = silent, ``1`` = live progress bar with ETA.
+        Verbosity level: ``0`` = silent, ``1`` = log progresses.
 
     Returns
     -------
     points : ndarray of shape (N, D)
-        The sampled point coordinates in [0, 1)^D.
+        Sampled point coordinates in [0, 1)^D.
 
     Notes
     -----
-    ``bruteforce`` is automatically used for N ≤ 2 000, regardless of the
-    ``method`` argument, as it is optimal in that regime.
+    For N <= 1000, ``gaussian`` will be selected automatically because for small number of points there is 
+    no need for a more complex method.
+
+    When sampling with a target, be sure that it is normalised and belongs to [0, 1)**D or weird things will happen.
     """
-    methods = ["rgbn", "bruteforce", "nufft"]
+
+    methods = ["rgbn", "gaussian", "nufft", "latjit", "cstit"]
+    n_iter = n_iter_scale
     if method not in methods:
         raise ValueError(f"unknown method {method!r}, must be one of {methods}")
 
-    bruteforce = method == "bruteforce" or N <= 2_000
+
+    def assert_valid_target(target, N, method, tol=1e-5):
+        points_only = True if method == "cstit" else False
+        D2_only = True if method != "cstit" else False
+        if isinstance(target, str):
+            assert Path(target).is_file(), f"Target image not found: {target!r}"
+            if points_only:
+                target = _im2targ(target, N, oversample = 32)
+            return target
+        target  = np.asarray(target)
+        if D2_only:
+            assert target.shape[-1] == 2, (
+                f"only 2D targets are supported with method {method}, use method='cstit' instead"
+            )
+        a, b = target.min(), target.max()
+        assert not (a < -tol or b > 1 + tol or b - a < 0.1), (
+            f"Suspicious target range [{a:.3g}, {b:.3g}]. "
+            "Expected values in [0, 1)^D with a reasonable spread."
+        )
+        return target
+    
+    has_target = targets is not None
+    if has_target:        
+        if method not in ["bruteforce","rgbn", "cstit"]:
+            raise ValueError(
+                f"a target density was given but method {method} does not support "
+                "a custom target; use method='rgbn', 'bruteforce' or 'cstit' instead."
+            )
+        targets = assert_valid_target(targets, N, method = method)
+        n_iter *= 2
+
+    if method == "latjit":
+        prefixD = 1
+        suffix = 1
+        for s in range(1, 11):
+            prefixD = int((N / s) ** (1 / D) + 1e-6) ** D
+            if N == prefixD * s:
+                suffix = s
+                break
+        if N != prefixD * s:
+            raise ValueError(
+                f"for latjit, (N={N}) must be a power of 2 or more generally of the form"
+                f"prefix**(D ={D}) * suffix with suffix in [1, 10]"
+                "This is to build suffix different lattices with basis prefix"
+            )
+        return np.concatenate(
+            [jitter(prefixD, D, verbose) for _ in range(suffix)]
+        )
+
+    if method == "cstit":
+        prefix2 = int(np.log2(N) + 1e-6)
+        assert N == 2**prefix2, (
+            "for cstit, N must be a power of 2, because stit is based of recursive cuts of the space in two halfs "
+        )
+        return _cstit_pipeline(N, D, targets, verbose, 4*n_iter_scale, lr)
+
+    bruteforce = method == "gaussian" or (N <= 1_000 if D  == 2 else N <= 3_000)
     nufft = method == "nufft"
 
     has_warmstart = warmstart is not None
-    has_target = targets is not None
-    if has_target:
-        if method == "nufft":
-            raise ValueError(
-                "a target density was given but method 'nufft' does not support "
-                "a custom target; use method='rgbn' or method='bruteforce' instead."
-            )
-        n_iter *= 2
-
     if has_warmstart:
         lr /= 2
         n_iter *= 2
@@ -195,8 +239,13 @@ def sample_points(
         x = None
 
     if nufft:
+        prefix2 = int(np.log2(N) + 1e-6)
+        assert N == 2**prefix2, (
+            "for nufft, N must be a power of 2 for performance." 
+            "Non power of 2 case would be much slower for the kdtree part and is not implemented "
+        )
         return _nufft_pipeline(N, D, lr=lr, warmstart=x,
-                               verbose=verbose, n_iter=10 * n_iter)
+                               verbose=verbose, n_iter= 20 * n_iter)
 
     if verbose >= 1:
         print(f"✦ {D}D blue-noise pipeline — sampling {N:,} points")
@@ -206,6 +255,12 @@ def sample_points(
 
     logger = ProgressLogger(D, verbose)
     if bruteforce:
+        if D == 2:
+            n_iter *= max(10, int(N/24))
+        if D == 3:
+            n_iter *= max(10, int(N/600))
+        if D >= 4:
+            n_iter *= max(10, int(N/2000))
         ctx = logger.enter_level(N, D, 0)
         ctx.start()
         blue = _bruteforce_pipeline(
@@ -215,7 +270,7 @@ def sample_points(
         )
         sampled_points = np.array(blue(x))
         logger.exit_level()
-    else:
+    elif method == "rgbn":
         preset = _PRESETS[min(D, 5)]
         sampled_points = _recursive_pipeline(
             N=N,
@@ -315,7 +370,7 @@ def sample_clusters(
     N: int = 2**15,
     D: int = 2,
     targets: NDArray | ClusterMethod  = "Goodlattice",
-    n_per_cluster: int = 32,
+    n_per_cluster: int = 8,
 ) -> NDArray:
     """
     Recursively partition a point set into N balanced clusters.
@@ -607,7 +662,7 @@ def _pinwheel_warmstart(N: int) -> NDArray:
     Uses tessel2points + pinwheel_transform then crops/wraps to exactly N points.
     Only valid for D=2.
     """
-    xbase = tessel2points(pinwheel_base(), p=3)           # (3, 3, 2) → 3 pts on base triangle
+    xbase = tessel2points(pinwheel_base(), p=3, verbose = 0)# (3, 3, 2) → 3 pts on base triangle
     depth = int(np.log(N / 3) / np.log(5) + 1)
     intensity = 3 * 4 * 5**depth
     x = pinwheel_transform(xbase, depth=depth)             # (4*5^depth, 3, 2)
@@ -681,3 +736,25 @@ def warmstart_points(
         f"unsupported warmstart={method!r}; expected None, "
         "'Goodlattice', 'Sobol', 'Pinwheel', or an ndarray of shape (N, D)."
     )
+
+def jitter(N, D, verbose):
+    """perturbed lattice based, latjit blue noise method"""
+    n = int(N ** (1 / D) + 1e-6)
+    if verbose >= 1 and (n**D != N):
+        warnings.warn(
+            f"user-given number of points N = {N} is not a power of dimension D = {D}; "
+            f"N will be rounded to {n}^{D} = {n**D} to build the lattice",
+            UserWarning,
+            stacklevel=2,
+        )
+    axes = [
+        (np.linspace(0, 1, n, endpoint = False) + 0.5) 
+        for _ in range(D)
+    ]
+    lattice = np.stack(
+        np.meshgrid(*axes, indexing="ij"),
+        axis=-1
+    ).reshape(-1, D) + np.random.rand(1, D)
+    u = (np.random.rand(len(lattice), D) - 0.5)/n
+    x = (lattice + u) % 1.0
+    return x

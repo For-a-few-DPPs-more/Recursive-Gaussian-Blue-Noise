@@ -54,5 +54,7 @@ def _im2targ(path, N, oversample=3):
         p=prob / prob.sum()         
     )
     candidates = grid[idx_candidates] + 1/2000 * np.random.randn(oversample * N, 2)
+
+    
     
     return candidates[:N]
