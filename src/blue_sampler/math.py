@@ -462,7 +462,7 @@ def kdtree_order(X: np.ndrray, G: int | None = None) -> np.ndarray:
     (G,)*D + (n_cells,) layout.  Finally the points themselves are
     gathered.
     """
-    X = np.asarray(X, dtype=np.float64)
+    X = np.asarray(X)
     N, D = X.shape
 
     if G is None:
@@ -495,16 +495,8 @@ def kdtree_order(X: np.ndrray, G: int | None = None) -> np.ndarray:
         # Split into two halves → new last dimension of size 2
         idx = idx.reshape(*idx.shape[:-1], 2, mid)
 
-    # idx now has shape (2,)*(K*D) + (n_cells,)
-    # We want to regroup the K bits of each spatial dimension together.
-    # Original bit order:  dim0_level0, dim1_level0, ..., dimD-1_level0,
-    #                      dim0_level1, ...
-    # Desired order:       all levels of dim0, all levels of dim1, ..., then cells
     transpose_axes = [d + k * D for d in range(D) for k in range(K)] + [K * D]
     idx = idx.transpose(transpose_axes)
-
-    # Now idx.shape == (2,)* (K*D) + (n_cells,)
-    # Reshape the first K*D axes into (G,)*D
     idx = idx.reshape(*(G,) * D, n_cells)
 
     # Gather the actual points → shape (G,)*D + (n_cells, D)
