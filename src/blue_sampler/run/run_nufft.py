@@ -1,116 +1,219 @@
-from __future__ import annotations
-
-import itertools
 import time
-from functools import partial
-
-import jax
-import jax.numpy as jnp
 import numpy as np
-from numpy.typing import NDArray
-
-from ..math import kdtree_order, torus_delta, torus_wrap
+from ..gpu_setup import set_config
 
 
-def get_shifts(radius: int, dims: int) -> jnp.ndarray:
-    ranges = [range(-radius, radius + 1)] * dims
-    shifts = [s for s in itertools.product(*ranges) if sum(v * v for v in s) <= radius**2]
-    return jnp.array(shifts, dtype=jnp.int32)
+def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
+                    n_iter=120, precision="float32", device="auto", seed=None, verbose=1):
+    """
+    NUFFT-based optimization to generate low-discrepancy points in [0,1)^D
+    by minimizing a Fourier energy that penalizes low-frequency clustering.
 
+    Parameters
+    ----------
+    N : int, default=10_000
+        Number of points.
+    D : int, default=2
+        Dimension (only 1, 2 or 3 supported).
+    lr : float, default=1.0
+        Base learning-rate scale. Initial step size will be of order  lr * 0.1 * N^(-1/D),
+    warmstart : array-like (N, D) or None, default=None
+        Starting configuration. If None, points are drawn uniformly (seeded by `seed`).
+    Chi : float, default=0.4
+        Frequency cutoff: control the ratio of freedom degrees of the system we are optimising.
+        The number of degrees of freedom is 2* Chi.
+        Thus:
+            Chi <= 0.3 -> target only low frequencies, make the pipeline easyer and faster
+            CHi = 0.4 -> balanced, default setting
+            Chi >= 0.5 -> target fluctuations at the point level, system start cristalising
+    target: np.ndarray, optional
+        An other point cloud representing a target density. Default is uniform density.
+        The bigger target the better, otherwise overfitting should be expected
+    n_iter : int, default=120
+        Maximum gradient-descent iterations.
+    precision : {"float32", "float64"}, default="float32"
+        Float64 will be slower, but allow to reach scattering intensity bellow 10^-20.
+    device : str, default="auto"
+        Compute device ("cpu", "cuda", or "auto").
+    seed : int or None, default=None
+        RNG seed used only when `warmstart` is None.
+    verbose : int, default=1
+        If >0, prints progress.
 
-def _nufft_pipeline(
-    N: int, D: int, lr: float = 1.0, kfrac: float = 1.0,
-    warmstart: NDArray | None = None, verbose: int = 1,
-    n_iter: int = 200, regrid_every: int = 1000,
-) -> NDArray:
-    """Generalised NUFFT-style point set optimisation."""
-    G = 2 ** int(np.log2(N ** (1 / D)) + 1e-6)
-    r = 5 if D == 2 else 4 if D == 3 else 3
-    shifts, cell_size = get_shifts(r, D), G**D
+    Returns
+    -------
+    x : ndarray, shape (N, D)
+        Optimized points in [0,1)^D.
+    """
+    if D not in (1, 2, 3):
+        raise ValueError(f"Only D=1,2,3 supported (got {D})")
 
-    assert N % cell_size == 0, (
-        f"N={N} must be divisible by G**D with G power of 2 "
-        f"(got G={G}, cell_size={cell_size})"
-    )
-    n_cells = N // cell_size
-    log = print if verbose >= 1 else lambda *_: None
+    cfg = set_config(device, precision, verbose)
 
-    K_RADIUS, SIGMA2 = max(1, int(G * kfrac)), (1.0 / G) ** 2
-    base_delta, AXES = 0.01 / G * lr, tuple(range(D))
+    # ---------- read the configuration (GPU/CPU, Float/Double) ----------
+    xp          = cfg.xp
+    real_dtype  = cfg.real_dtype
+    complex_dtype = cfg.complex_dtype
+    device = cfg.device
+    precision = cfg.precision
+    to_numpy = cfg.to_numpy
+    nufft_lib = cfg.nufft_lib
 
-    g_axis = jnp.linspace(0.0, 1.0, G, endpoint=False)
-    GRID = jnp.stack(jnp.meshgrid(*([g_axis] * D), indexing="ij"), axis=-1)[..., None, :]
-
-    freqs = jnp.fft.fftfreq(G) * G
-    freq_r2 = sum(f**2 for f in jnp.meshgrid(*([freqs] * D), indexing="ij"))
-    MASK = (freq_r2 > K_RADIUS**2) | (freq_r2 <= 0.01)
-    K_WEIGHT = (((1.0 / freq_r2))).at[MASK].set(0.0)[..., None]
-
-    def _loss_and_grad(x_grid, shifts):
-        def _fwd(acc, shift):
-            delta = torus_delta(GRID - jnp.roll(x_grid, shift, axis=AXES))
-            return acc + jnp.exp(-jnp.sum(delta**2, axis=-1) / SIGMA2), None
-
-        dens, _ = jax.lax.scan(_fwd, jnp.zeros((G,) * D + (n_cells,)), shifts)
-        F = jnp.fft.fftn(dens, axes=AXES)
-        loss = jnp.sum(jnp.abs(F)**3 * K_WEIGHT)
-        grad_dens = jnp.fft.ifftn(K_WEIGHT * F * jnp.abs(F), axes=AXES).real
-
-        def _bwd(acc, shift):
-            delta = torus_delta(GRID - jnp.roll(x_grid, shift, axis=AXES))
-            dist2 = jnp.sum(delta**2, axis=-1, keepdims=True)
-            gpix = grad_dens[..., None] * jnp.exp(-dist2 / SIGMA2) * delta
-            return acc + jnp.roll(gpix, -shift, axis=AXES), None
-
-        grad_x, _ = jax.lax.scan(_bwd, jnp.zeros_like(x_grid), shifts)
-        return loss, grad_x
-
-    @partial(jax.jit, static_argnums=(1,))
-    def _run_chunk(x_init, n_steps, adap, prev_loss):
-        def step(carry, _):
-            x, adap, prev = carry
-            loss, g = _loss_and_grad(x, shifts)
-            x = torus_wrap(x - g / jnp.mean(jnp.abs(g) + 1e-30) * adap)
-            improved = loss < prev
-            return (x, jnp.where(improved, adap * 1.05, adap * 0.8), loss), None
-
-        (x, adap, prev), _ = jax.lax.scan(step, (x_init, adap, prev_loss), None, length=n_steps)
-        return x, adap, prev
-
-    def _loss(x):
-        return _loss_and_grad(x, shifts)[0]
+    eps = 1e-5 if precision == "float32" else 1e-10
+    resolution = 1.5
+    # ---------- geometry ----------
+    if D == 2:
+        kfrac = float(np.sqrt(2 / np.pi) * 2 * Chi)
+    elif D == 3:
+        kfrac = float((2 / ((4 / 3) * np.pi)) ** (1 / 3) * 2 * Chi)
+    else:
+        kfrac = 2.0 * Chi
 
     if warmstart is not None:
-        if warmstart.shape != (N, D):
-            raise ValueError(f"warmstart must be ({N}, {D}), got {warmstart.shape}")
-        x_np = warmstart.astype(np.float32)
+        x = xp.asarray(warmstart, dtype=real_dtype).reshape(N, D)
     else:
-        x_np = np.random.rand(N, D).astype(np.float32)
+        rng = np.random.default_rng(seed)
+        x = xp.asarray(rng.uniform(size=(N, D)), dtype=real_dtype)
 
-    def to_grid(pts: NDArray) -> jnp.ndarray:
-        return jnp.asarray(kdtree_order(pts, G=G))
+    G = int(np.ceil(N ** (1.0 / D)) * resolution)
+    if G % 2:
+        G += 1
+    n_modes = (G,) * D
 
-    log(f"[nufft] {D}D | {N} pts | {n_iter} iters")
+    # frequencies (FFT order)
+    freqs = xp.fft.fftfreq(G).astype(real_dtype) * G
+    if D == 1:
+        ks = (freqs,)
+    else:
+        ks = xp.meshgrid(*[freqs] * D, indexing="ij")
+
+    r2 = sum(k**2 for k in ks)
+    rpow = (r2 + 1e-3) ** (-1.0)
+    mask = (r2 > 0) & (r2 <= (G * min(kfrac / resolution, 1.0)) ** 2)
+    w = xp.where(mask, rpow, 0.0).astype(real_dtype)
+    norm = float(xp.maximum(mask.sum(), 1.0))
+    w = w / w.max()
+
+    # ---------- plans (réutilisables) ----------
+    plan_kwargs = dict(
+        n_trans=1,
+        eps=eps,
+        isign=1,
+        dtype=complex_dtype,
+        modeord=1,
+    )
+    plan1 = nufft_lib.Plan(1, n_modes, **plan_kwargs)  # type-1 (forward)
+    plan2 = nufft_lib.Plan(2, n_modes, **plan_kwargs)  # type-2 (backward)
+
+    c = xp.ones(N, dtype=complex_dtype)
+
+    # ---------- target Fourier (computed once) ----------
+    if target is not None:
+        if isinstance(target, str): #path to an image
+            target = im2spectrum(target, shape=n_modes, invert=True)
+            fk_target = xp.asarray(target, dtype=complex_dtype)
+            scale = 1.0 / N
+        else:
+            target = xp.asarray(target, dtype=real_dtype)
+            if target.ndim != 2 or target.shape[1] != D:
+                raise ValueError(f"target must have shape (M, {D}), got {target.shape}")
+            M = target.shape[0]
+            c_target = xp.ones(M, dtype=complex_dtype)
+            coords_t = tuple(2.0 * xp.pi * target[:, d] for d in range(D))
+            plan1.setpts(*coords_t)
+            fk_target = plan1.execute(c_target) / M          # density normalisation
+            scale = 1.0 / N                                  # so that both are densities
+    else:
+        fk_target = 0.0
+        scale = 1.0                                      # classic |fk|^2 (uniform)
+
+    def loss_and_grad(x: xp.ndarray):
+        coords = tuple(2.0 * xp.pi * x[:, d] for d in range(D))
+
+        plan1.setpts(*coords)
+        fk = plan1.execute(c) * scale
+
+        diff = fk - fk_target
+        loss = float(xp.sum(xp.abs(diff) ** 2 * w) / norm)
+
+        grads = []
+        for d in range(D):
+            # gradient of |fk - fk_target|^2  →  2 * conj(diff) * (i 2π k_d)
+            grad_source = (2.0 * w * xp.conj(diff) * (1j * 2.0 * xp.pi * ks[d])).astype(
+                complex_dtype
+            )
+            plan2.setpts(*coords)
+            g_d = plan2.execute(grad_source)
+            grads.append(g_d.real * scale)               # chain rule for the 1/N factor
+
+        grad = xp.stack(grads, axis=1) / norm
+        return loss, grad
+
+    # ---------- scheduled gradient descent ----------
+    delta = lr * 0.1 * N ** (-1.0 / D)
+
+    if verbose:
+        tgt_info = f"target={target.shape[0]} pts" if target is not None else "uniform"
+        print(
+            f"[nufft | {device} | {precision}] "
+            f"N={N}  D={D}  G={G}  kfrac={kfrac:.4f}  "
+            f"n_iter={n_iter}  delta={delta:.4f}  ({tgt_info})"
+        )
+        print("For Early-stopping : Ctrl-C (Keyboard interrupt ⏹️)")
 
     t0 = time.time()
-    x_grid = to_grid(x_np)
-    flat = np.asarray(x_grid).reshape(-1, D)
-    log(f"kdtree built (elapsed {time.time() - t0:.2f}s)")
-    loss0 = _loss(x_grid)
-    log(f"loss 0: {loss0:.2e}")
+    adaptive = delta
+    prev_loss = float("inf")
 
-    t0 = time.time()
+    try:
+        for it in range(n_iter):
+            envelope = 1.0 #float(np.exp(-5.0 * it / n_iter))
+            schedule = adaptive * envelope
 
-    for start in range(0, n_iter, regrid_every):
-        adap, prev_loss = jnp.asarray(base_delta, dtype=x_grid.dtype), jnp.asarray(jnp.inf)
-        nit = min(n_iter - start, regrid_every)
-        x_grid = to_grid(flat)
-        x_grid, adap, prev_loss = _run_chunk(x_grid, nit, adap, prev_loss)
-        curloss = _loss(x_grid)
-        log(f"loss {start + nit}: {curloss:.2e}")
-        flat = np.asarray(x_grid).reshape(-1, D)
+            loss, grad = loss_and_grad(x)
+            rms = xp.sqrt(xp.mean(grad**2) + 1e-30)
+            x_new = x - (grad / rms) * schedule
+            x_new = x_new - xp.floor(x_new)
+
+            if loss < prev_loss:
+                x = x_new
+                adaptive *= 1.05
+                prev_loss = loss
+            else:
+                adaptive *= 0.8
+                x = x_new
+
+            if verbose and (it % 20 == 0 or it == n_iter - 1):
+                print(f"  iter {it:4d} | loss {loss:.1e}")
+
+    except KeyboardInterrupt:
+        if verbose:
+            print(f"\n  [KeyboardInterrupt] stopped at iter {it} | loss {loss:.4f}")
+            print(f"  elapsed : {time.time() - t0:.1f}s")
+
+    if verbose:
+        print(f"  done in {time.time() - t0:.1f}s")
+
+    return to_numpy(x)
+
+def im2spectrum(path, shape=(512, 512), invert=True):
+    """
+    Load any image and return its complex Fourier spectrum
+    (DFT of a normalized density on `shape`).
 
 
-    log(f"done in {time.time() - t0:.2f}s | loss {float(loss0):.2e} → {float(curloss):.2e}")
-
-    return flat
+    Returns
+    -------
+    spectrum : np.ndarray, complex, shape = shape
+        FFT of the density (numpy complex128 by default).
+    """
+    from PIL import Image
+    img = Image.open(path).convert("L").resize(shape[::-1], Image.LANCZOS)
+    rho = np.asarray(img, dtype=np.float64) / 255.0
+    rho = (rho.T)[::-1]   
+    if invert:
+        rho = 1.0 - rho
+    rho = rho / rho.sum()
+    # FFT in the same frequency ordering that xp.fft.fftfreq uses
+    spectrum = np.fft.fftn(rho)
+    return spectrum

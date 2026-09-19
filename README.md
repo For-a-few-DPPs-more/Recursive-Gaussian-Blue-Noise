@@ -72,8 +72,9 @@ x = blue.sample_points(N, D, method="rgbn") #(N, D)
 | `latjit`        | fast and simple lattice jittering        |
 ---
 
-The main blue-noise samplers (**RGBN** and **NUFFT**) offer **linear** complexity in the number of points.  
-They can generate e.g. 1 million 2D (resp 3D) points in under 10 minutes (resp 30 minutes) on a standard CPU, and up to 30× faster on GPU (30s resp 1 minute). Note that the three last methods all require N to be a power of 2.
+All presented samplers, having linear complexity in the number of points, are thus intended to scale up to million points (at least in 2/3D) beyond the minute (GPU) or 20 minutes (CPU).
+Were their will be a difference will be in supported dimensions (or cardinality constrains on N), spectral quality, speed,
+gpu support, target support. Depending on one's specific task, it is recommanded to give them all a quick try, starting with rgbn and nufft. QUality can be checked with the structure factor and by ploting the points if D <= 3.
 
 ## Alternative Samplers
 
@@ -114,6 +115,7 @@ x0 = blue.tessel2points(pw0) #(m, D=2)
 #in a fractal way
 x4 = blue.pinwheel_transform(x0, depth = 4) #(4*5**depth, m, D=2)
 ```
+> **Note on GPU support:** Most methods can run on CPU only, but they will benefit from GPU acceleration. Run `blue.help_gpu()` for more details on that.
 
 > **Note on adaptative sampling**: The sampling methods implemented here support adaptive sampling from a target distribution. This feature is still experimental beyond 2d distributions
  

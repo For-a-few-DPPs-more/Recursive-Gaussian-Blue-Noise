@@ -15,6 +15,7 @@ def im2field(path, shape=(512, 512), invert=True):
     rho = (rho.T)[:, ::-1]
     if invert:
         rho = 1.0 - rho
+    rho = rho
     return rho / rho.sum()
 
 def gaussian_kernel(size, sigma):

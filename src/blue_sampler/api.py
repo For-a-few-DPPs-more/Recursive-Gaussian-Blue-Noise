@@ -46,7 +46,7 @@ BlueNoiseMethod = Literal["rgbn", "nufft", "gaussian", "latjit", "cstit"]
 WarmstartMethod = Literal["Goodlattice", "Sobol", "Pinwheel"]
 ClusterMethod = Literal["Goodlattice", "Sobol", "Pinwheel"]
 
-def im2points(image: str = "anything.jpg", N: int = 100_000) -> NDArray:
+def im2points(image: str = "anything.jpg", N: int = 2**14, fast: bool = False) -> NDArray:
     """
     Image stippling: distribute N blue-noise points according to image brightness.
 
@@ -59,17 +59,22 @@ def im2points(image: str = "anything.jpg", N: int = 100_000) -> NDArray:
         Path to the input image (any format supported by matplotlib/PIL).
     N : int, default 100_000
         Number of output points.
+    fast: bool
+        if true, speed up the stippling
 
     Returns
     -------
     points : ndarray of shape (N, 2)
         The sampled point coordinates in [0, 1)^2.
     """
-    points = sample_points(N=N, D=2, targets=image)
-    plot(points, figsize=(10, 10))
+    if fast:
+        points = _nufft_pipeline(N = N, D = 2, target = image, Chi = 1.0, n_iter = 40, lr = 3) 
+    else:
+        points = sample_points(N=N, D=2, targets=image)
+    plot(points, figsize=(8, 8))
     return points
 
-def im2quads(image: str = "anything.jpg", N: int = 2**15, K: int = 100) -> NDArray:
+def im2quads(image: str = "anything.jpg", N: int = 2**15, K: int = 4) -> NDArray:
     """
     Image stippling with quadrilaterals
 
@@ -88,7 +93,8 @@ def im2quads(image: str = "anything.jpg", N: int = 2**15, K: int = 100) -> NDArr
     Returns
     -------
     quads : ndarray of shape (N, 4, 2)
-        The sampled ABCD coordinates of each quad in [0, 1)^2.
+        The sampled ABCD co
+        ordinates of each quad in [0, 1)^2.
     
     Note
     ----
@@ -96,7 +102,7 @@ def im2quads(image: str = "anything.jpg", N: int = 2**15, K: int = 100) -> NDArr
     to the nearest power.
     """
     N = 2**int(np.log2(N))
-    points = _im2targ(image, K*N)
+    points = _nufft_pipeline(N = K*N, D = 2, target = image, Chi = 1.0, n_iter = 40, lr = 3, verbose = 0)
     quads = sample_tessels(N = N, targets = points)
     plot_polygons(quads, color = "blue", linewidth = 0)
     return quads
@@ -131,7 +137,7 @@ def sample_points(
         - ``"gaussian"`` — Exact Gaussian Blue Noise (GBN), with no
                   neighbourhood truncation. High quality but slow for large N.
         - ``"rgbn"``     — Recursive Gaussian Blue Noise. Fast spatial
-          optimisation with a truncated neighbourhood. Recommended.
+          optimisation with a truncated neighbourhood.
         - ``"nufft"``    — Spectral optimisation using a Non-Uniform Fast
           Fourier Transform.
         - ``"cstit"``    — Optimisation based on a stable-partition
@@ -173,17 +179,18 @@ def sample_points(
 
 
     def assert_valid_target(target, N, method, tol=1e-5):
-        points_only = True if method == "cstit" else False
-        D2_only = True if method != "cstit" else False
+        points_only = True if method in ["cstit", "nufft"] else False
+        D2_only = True if method in ["gaussian", "rgbn"] else False
         if isinstance(target, str):
             assert Path(target).is_file(), f"Target image not found: {target!r}"
             if points_only:
-                target = _im2targ(target, N, oversample = 32)
+                oversample = 32 if method == "cstit" else 128
+                target = _im2targ(target, N, oversample = oversample)
             return target
         target  = np.asarray(target)
         if D2_only:
             assert target.shape[-1] == 2, (
-                f"only 2D targets are supported with method {method}, use method='cstit' instead"
+                f"only 2D targets are supported with method {method}, use method='cstit'/'nufft' instead"
             )
         a, b = target.min(), target.max()
         assert not (a < -tol or b > 1 + tol or b - a < 0.1), (
@@ -194,10 +201,10 @@ def sample_points(
     
     has_target = targets is not None
     if has_target:        
-        if method not in ["bruteforce","rgbn", "cstit"]:
+        if method not in ["bruteforce","rgbn", "cstit", "nufft"]:
             raise ValueError(
                 f"a target density was given but method {method} does not support "
-                "a custom target; use method='rgbn', 'bruteforce' or 'cstit' instead."
+                "a custom target; use method='rgbn', 'bruteforce', 'nufft', or 'cstit' instead."
             )
         targets = assert_valid_target(targets, N, method = method)
         n_iter *= 2
@@ -227,9 +234,6 @@ def sample_points(
         )
         return _cstit_pipeline(N, D, targets, verbose, 4*n_iter_scale, lr)
 
-    bruteforce = method == "gaussian" or (N <= 1_000 if D  == 2 else N <= 3_000)
-    nufft = method == "nufft"
-
     has_warmstart = warmstart is not None
     if has_warmstart:
         lr /= 2
@@ -238,13 +242,11 @@ def sample_points(
     else:
         x = None
 
-    if nufft:
-        prefix2 = int(np.log2(N) + 1e-6)
-        assert N == 2**prefix2, (
-            "for nufft, N must be a power of 2 for performance." 
-            "Non power of 2 case would be much slower for the kdtree part and is not implemented "
+    if  method == "nufft":
+        assert D <= 3, (
+                f"nufft method require points dimension D <= 3, got D = {D} "
         )
-        return _nufft_pipeline(N, D, lr=lr, warmstart=x,
+        return _nufft_pipeline(N, D, lr=lr, warmstart=x, target = targets,
                                verbose=verbose, n_iter= 20 * n_iter)
 
     if verbose >= 1:
@@ -252,6 +254,8 @@ def sample_points(
 
     if n_iter == 0:
         return x
+
+    bruteforce = method == "gaussian" or (N <= 1_000 if D  == 2 else N <= 3_000)
 
     logger = ProgressLogger(D, verbose)
     if bruteforce:

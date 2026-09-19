@@ -70,7 +70,7 @@ def _recursive_pipeline(
         if has_target and D == 2:
             #spatial_radius = 8
             S = 0.5
-        if is_root:
+        if is_root and (x is None):
             N_ITER = 50
 
         ctx = logger.enter_level(N, D, N_ITER)
