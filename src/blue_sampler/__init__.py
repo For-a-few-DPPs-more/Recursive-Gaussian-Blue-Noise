@@ -27,8 +27,9 @@ from .api import (
     warmstart_points,
 )
 from .viz import plot, plot_structure_factor, plot_tessels, plot_clusters, plot_polygons
-from .math import structure_factor, structure_factor_and_average
+from .structurefactor import structure_factor, structure_factor_and_average
 from .datasets import generate_dataset
+from .gpu_setup import check_gpu
 
 __all__ = [
     "im2points",
@@ -51,6 +52,7 @@ __all__ = [
     "plot_polygons",
     "tile",
     "warmstart_points",
+    "check_gpu",
 ]
 
-__version__ = "2.1.1"
+__version__ = "2.1.2"

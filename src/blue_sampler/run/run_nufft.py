@@ -1,198 +1,216 @@
-from __future__ import annotations
-
-import itertools
 import time
-from typing import Optional
-
 import numpy as np
-from numpy.typing import NDArray
-from ..math import kdtree_order
-
-# ---------------------------------------------------------------------------
-# Helpers (équivalents NumPy des fonctions de ..math)
-# ---------------------------------------------------------------------------
-
-def torus_delta(x: NDArray) -> NDArray:
-    """Distance minimale sur le tore [0, 1)^D (version vectorisée)."""
-    return x - np.round(x)
+from ..gpu_setup import set_config
 
 
-def torus_wrap(x: NDArray) -> NDArray:
-    """Ramène les coordonnées dans [0, 1)."""
-    return np.mod(x, 1.0)
-
-
-# ---------------------------------------------------------------------------
-# Shifts
-# ---------------------------------------------------------------------------
-
-def get_shifts(radius: int, dims: int) -> NDArray:
-    ranges = [range(-radius, radius + 1)] * dims
-    shifts = [
-        s for s in itertools.product(*ranges)
-        if sum(v * v for v in s) <= radius * radius
-    ]
-    return np.asarray(shifts, dtype=np.int32)
-
-
-# ---------------------------------------------------------------------------
-# Pipeline principal
-# ---------------------------------------------------------------------------
-
-def _nufft_pipeline(
-    N: int,
-    D: int,
-    lr: float = 1.0,
-    kfrac: float = 1.0,
-    warmstart: Optional[NDArray] = None,
-    verbose: int = 1,
-    n_iter: int = 200,
-    regrid_every: int = 30,
-) -> NDArray:
+def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
+                    n_iter=120, precision="float32", device="auto", seed=None, verbose=1):
     """
-    Generalised NUFFT-style point set optimisation (version pure NumPy).
-    """
-    # Taille de grille (puissance de 2)
-    G = 2 ** int(np.log2(N ** (1.0 / D)) + 1e-6)
+    NUFFT-based optimization to generate low-discrepancy points in [0,1)^D
+    by minimizing a Fourier energy that penalizes low-frequency clustering.
 
+    Parameters
+    ----------
+    N : int, default=10_000
+        Number of points.
+    D : int, default=2
+        Dimension (only 1, 2 or 3 supported).
+    lr : float, default=1.0
+        Base learning-rate scale. Initial step size will be of order  lr * 0.1 * N^(-1/D),
+    warmstart : array-like (N, D) or None, default=None
+        Starting configuration. If None, points are drawn uniformly (seeded by `seed`).
+    Chi : float, default=0.4
+        Frequency cutoff: control the ratio of freedom degrees of the system we are optimising.
+        The number of degrees of freedom is 2* Chi.
+        Thus:
+            Chi <= 0.3 -> target only low frequencies, make the pipeline easyer and faster
+            CHi = 0.4 -> balanced, default setting
+            Chi >= 0.5 -> target fluctuations at the point level, system start cristalising
+    target: np.ndarray, optional
+        An other point cloud representing a target density. Default is uniform density.
+        The bigger target the better, otherwise overfitting should be expected
+    n_iter : int, default=120
+        Maximum gradient-descent iterations.
+    precision : {"float32", "float64"}, default="float32"
+        Float64 will be slower, but allow to reach scattering intensity bellow 10^-20.
+    device : str, default="auto"
+        Compute device ("cpu", "cuda", or "auto").
+    seed : int or None, default=None
+        RNG seed used only when `warmstart` is None.
+    verbose : int, default=1
+        If >0, prints progress.
+
+    Returns
+    -------
+    x : ndarray, shape (N, D)
+        Optimized points in [0,1)^D.
+    """
+    if D not in (1, 2, 3):
+        raise ValueError(f"Only D=1,2,3 supported (got {D})")
+
+    cfg = set_config(device, precision, verbose)
+
+    # ---------- read the configuration (GPU/CPU, Float/Double) ----------
+    xp          = cfg.xp
+    real_dtype  = cfg.real_dtype
+    complex_dtype = cfg.complex_dtype
+    device = cfg.device
+    precision = cfg.precision
+    to_numpy = cfg.to_numpy
+    nufft_lib = cfg.nufft_lib
+
+    eps = 1e-4 if precision == "float32" else 1e-8
+    # ---------- geometry ----------
     if D == 2:
-        r = 5
+        kfrac = float(np.sqrt(2 / np.pi) * 4 * Chi)
     elif D == 3:
-        r = 4
-    else:  # D >= 4
-        r = 3
+        kfrac = float((2 / ((4 / 3) * np.pi)) ** (1 / 3) * 4 * Chi)
 
-    shifts = get_shifts(r, D)
-    cell_size = G ** D
-    assert N % cell_size == 0, (
-        f"N={N} must be divisible by G**D with G power of 2 "
-        f"(got G={G}, cell_size={cell_size})"
-    )
-    n_cells = N // cell_size
-
-    log = (lambda msg: print(msg)) if verbose >= 1 else (lambda msg: None)
-
-    K_RADIUS = max(1, int(G * kfrac))
-    SIGMA2 = (1.0 / G) ** 2
-    base_delta = 0.01 / G * lr
-    AXES = tuple(range(D))
-
-    # Grille spatiale
-    g_axis = np.linspace(0.0, 1.0, G, endpoint=False)
-    GRID = np.stack(
-        np.meshgrid(*([g_axis] * D), indexing="ij"),
-        axis=-1,
-    )[..., None, :]  # shape (G,)*D + (1, D)
-
-    # Poids fréquentiels
-    freqs = np.fft.fftfreq(G) * G
-    freq_grids = np.meshgrid(*([freqs] * D), indexing="ij")
-    freq_r2 = sum(f ** 2 for f in freq_grids)
-
-    MASK = (freq_r2 > K_RADIUS ** 2) | (freq_r2 <= 0.01)
-    K_WEIGHT = np.where(MASK, 0.0, 1.0 / freq_r2)
-    K_WEIGHT = K_WEIGHT[..., None]  # broadcast sur les cellules
-
-    # ------------------------------------------------------------------
-    # Loss + gradient (manuel)
-    # ------------------------------------------------------------------
-    def _loss_and_grad(x_grid: NDArray, shifts: NDArray):
-        # x_grid : (G,)*D + (n_cells, D)
-
-        # Forward : densité
-        dens = np.zeros((G,) * D + (n_cells,), dtype=x_grid.dtype)
-        for shift in shifts:
-            rolled = np.roll(x_grid, shift, axis=AXES)
-            delta = torus_delta(GRID - rolled)
-            dens_contrib = np.exp(-np.sum(delta ** 2, axis=-1) / SIGMA2)
-            dens += dens_contrib
-
-        # FFT + loss
-        F = np.fft.fftn(dens, axes=AXES)
-        loss = np.sum((np.abs(F) ** 3) * K_WEIGHT)
-
-        # Gradient dans le domaine fréquentiel
-        grad_F = K_WEIGHT * F * np.abs(F)
-        grad_dens = np.fft.ifftn(grad_F, axes=AXES).real
-
-        # Backward
-        grad_x = np.zeros_like(x_grid)
-        for shift in shifts:
-            rolled = np.roll(x_grid, shift, axis=AXES)
-            delta = torus_delta(GRID - rolled)
-            dist2 = np.sum(delta ** 2, axis=-1, keepdims=True)
-            gpix = grad_dens[..., None] * np.exp(-dist2 / SIGMA2) * delta
-            grad_x += np.roll(gpix, -np.asarray(shift), axis=AXES)
-
-        return loss, grad_x
-
-    # ------------------------------------------------------------------
-    # Un chunk d'optimisation (remplace le scan jitté)
-    # ------------------------------------------------------------------
-    def _run_chunk(x_init: NDArray, n_steps: int, adap: float, prev_loss: float):
-        x = x_init.copy()
-        for _ in range(n_steps):
-            loss, g = _loss_and_grad(x, shifts)
-            rms = np.sqrt(np.mean(g ** 2) + 1e-30)
-            x = torus_wrap(x - (g / rms) * adap)
-
-            improved = loss < prev_loss
-            adap = adap * 1.01 if improved else adap * 0.9
-            prev_loss = loss
-
-        return x, adap, prev_loss
-
-    def _loss(x: NDArray) -> float:
-        return float(_loss_and_grad(x, shifts)[0])
-
-    # ------------------------------------------------------------------
-    # Initialisation
-    # ------------------------------------------------------------------
     if warmstart is not None:
-        if warmstart.shape != (N, D):
-            raise ValueError(f"warmstart must be ({N}, {D}), got {warmstart.shape}")
-        x_np = warmstart.astype(np.float64)
+        x = xp.asarray(warmstart, dtype=real_dtype).reshape(N, D)
     else:
-        x_np = np.random.rand(N, D).astype(np.float64)
+        rng = np.random.default_rng(seed)
+        x = xp.asarray(rng.uniform(size=(N, D)), dtype=real_dtype)
 
-    def to_grid(pts: NDArray) -> NDArray:
-        return kdtree_order(pts, G=G)
+    G = int(np.ceil(N ** (1.0 / D)) * kfrac)
+    if G % 2:
+        G += 1
+    n_modes = (G,) * D
 
-    log(f"[nufft] {D}D  | {N} pts | {n_iter} iters")
+    # frequencies (FFT order)
+    freqs = xp.fft.fftfreq(G).astype(real_dtype) * G
+    if D == 1:
+        ks = (freqs,)
+    else:
+        ks = xp.meshgrid(*[freqs] * D, indexing="ij")
 
-    t0 = time.time()
-    x_grid = to_grid(x_np)
-    log(f"kdtree built (elapsed {time.time() - t0:.2f}s)")
-    loss0 = _loss(x_grid)
-    log(f"loss 0: {loss0:.2e}")
+    r2 = sum(k**2 for k in ks)
+    rpow = (r2 + 1e-3) ** (-1.0)
+    mask = (r2 > 0) & (r2 <= G ** 2)
+    w = xp.where(mask, rpow, 0.0).astype(real_dtype)
+    norm = float(xp.maximum(mask.sum(), 1.0))
+    w = w / w.max()
 
-    adap = float(base_delta)
-    prev_loss = np.inf
-
-    # Premier chunk
-    x_grid, adap, prev_loss = _run_chunk(x_grid, regrid_every, adap, prev_loss)
-    flat = x_grid.reshape(-1, D)
-
-    # Boucle principale
-    t0 = time.time()
-    adap = float(base_delta)
-    prev_loss = np.inf
-
-    for start in range(0, n_iter, regrid_every):
-        log(f"loss {start + regrid_every}: {_loss(x_grid):.2e}")
-        x_grid = to_grid(flat)
-
-        x_grid, adap, prev_loss = _run_chunk(
-            x_grid, regrid_every, adap, prev_loss
-        )
-        flat = x_grid.reshape(-1, D)
-
-    x_grid = to_grid(flat)
-    loss2 = _loss(x_grid)
-
-    log(
-        f"done in {time.time() - t0:.2f}s | "
-        f"loss {loss0:.2e} → {loss2:.2e}"
+    # ---------- plans (réutilisables) ----------
+    plan_kwargs = dict(
+        n_trans=1,
+        eps=eps,
+        isign=1,
+        dtype=complex_dtype,
+        modeord=1,
     )
+    plan1 = nufft_lib.Plan(1, n_modes, **plan_kwargs)  # type-1 (forward)
+    plan2 = nufft_lib.Plan(2, n_modes, **plan_kwargs)  # type-2 (backward)
 
-    return x_grid.reshape(-1, D)
+    c = xp.ones(N, dtype=complex_dtype)
+
+    # ---------- target Fourier (computed once) ----------
+    if target is not None:
+        if isinstance(target, str): #path to an image
+            target = im2spectrum(target, shape=n_modes, invert=True)
+            fk_target = xp.asarray(target, dtype=complex_dtype)
+            scale = 1.0 / N
+        else:
+            target = xp.asarray(target, dtype=real_dtype)
+            if target.ndim != 2 or target.shape[1] != D:
+                raise ValueError(f"target must have shape (M, {D}), got {target.shape}")
+            M = target.shape[0]
+            c_target = xp.ones(M, dtype=complex_dtype)
+            coords_t = tuple(2.0 * xp.pi * target[:, d] for d in range(D))
+            plan1.setpts(*coords_t)
+            fk_target = plan1.execute(c_target) / M          # density normalisation
+            scale = 1.0 / N                                  # so that both are densities
+    else:
+        fk_target = 0.0
+        scale = 1.0                                      # classic |fk|^2 (uniform)
+
+    def loss_and_grad(x: xp.ndarray):
+        coords = tuple(2.0 * xp.pi * x[:, d] for d in range(D))
+
+        plan1.setpts(*coords)
+        fk = plan1.execute(c) * scale
+
+        diff = fk - fk_target
+        loss = float(xp.sum(xp.abs(diff) ** 2 * w) / norm)
+
+        grads = []
+        for d in range(D):
+            # gradient of |fk - fk_target|^2  →  2 * conj(diff) * (i 2π k_d)
+            grad_source = (2.0 * w * xp.conj(diff) * (1j * 2.0 * xp.pi * ks[d])).astype(
+                complex_dtype
+            )
+            plan2.setpts(*coords)
+            g_d = plan2.execute(grad_source)
+            grads.append(g_d.real * scale)               # chain rule for the 1/N factor
+
+        grad = xp.stack(grads, axis=1) / norm
+        return loss, grad
+
+    # ---------- scheduled gradient descent ----------
+    delta = lr * 0.1 * N ** (-1.0 / D)
+
+    if verbose:
+        tgt_info = f"target={target.shape[0]} pts" if target is not None else "uniform"
+        print(
+            f"[nufft | {device}] "
+            f"N={N}  D={D}   Chi={Chi:.2f}  "
+            f"n_iter={n_iter}   ({tgt_info})"
+        )
+        print("For Early-stopping : Ctrl-C (Keyboard interrupt ⏹️)")
+
+    t0 = time.time()
+    adaptive = delta
+    prev_loss = float("inf")
+
+    try:
+        for it in range(n_iter):
+            envelope = 1.0 #float(np.exp(-5.0 * it / n_iter))
+            schedule = adaptive * envelope
+
+            loss, grad = loss_and_grad(x)
+            rms = xp.sqrt(xp.mean(grad**2) + 1e-30)
+            x_new = x - (grad / rms) * schedule
+            x_new = x_new - xp.floor(x_new)
+
+            if loss < prev_loss:
+                x = x_new
+                adaptive *= 1.05
+                prev_loss = loss
+            else:
+                adaptive *= 0.8
+                x = x_new
+
+            if verbose and (it % 20 == 0 or it == n_iter - 1):
+                print(f"  iter {it:4d} | loss {loss:.1e}")
+
+    except KeyboardInterrupt:
+        if verbose:
+            print(f"\n  [KeyboardInterrupt] stopped at iter {it} | loss {loss:.4f}")
+            print(f"  elapsed : {time.time() - t0:.1f}s")
+
+    if verbose:
+        print(f"  done in {time.time() - t0:.1f}s")
+
+    return to_numpy(x)
+
+def im2spectrum(path, shape=(512, 512), invert=True):
+    """
+    Load any image and return its complex Fourier spectrum
+    (DFT of a normalized density on `shape`).
+
+
+    Returns
+    -------
+    spectrum : np.ndarray, complex, shape = shape
+        FFT of the density (numpy complex128 by default).
+    """
+    from PIL import Image
+    img = Image.open(path).convert("L").resize(shape[::-1], Image.LANCZOS)
+    rho = np.asarray(img, dtype=np.float64) / 255.0
+    rho = (rho.T)[::-1]   
+    if invert:
+        rho = 1.0 - rho
+    rho = rho / rho.sum()
+    # FFT in the same frequency ordering that xp.fft.fftfreq uses
+    spectrum = np.fft.fftn(rho)
+    return spectrum

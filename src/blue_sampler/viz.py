@@ -15,7 +15,7 @@ from numpy.typing import NDArray
 import matplotlib.pyplot as plt
 from matplotlib.collections import PolyCollection
 
-from .math import structure_factor_and_average
+from .structurefactor import structure_factor_and_average
 from .run.run_tessels import back_merge_tessels
 from .run.run_clusters import back_merge_clusters
 
@@ -115,6 +115,7 @@ def plot(
 def plot_structure_factor(
     points: NDArray,
     resolution: int = 20_000,
+    precision: str = "float32",
     ax: plt.Axes | None = None,
     return_fig: bool = False,
     title: str = None,
@@ -138,6 +139,9 @@ def plot_structure_factor(
         Number of sampled wave vectors. Larger values produce a smoother
         radial curve at increased computational cost. If D >= 4, the resolution
         will be divided by 10 for faster computation.
+    precision : precision used for the structure factor computation.
+        float64 is much slower, but might be needed if the true structure 
+        factor is beyond 10^(-10).
     ax : matplotlib.axes.Axes, optional
         Existing axes on which to draw. If None, a new figure is created.
     return_fig : bool, default=False
@@ -175,7 +179,7 @@ def plot_structure_factor(
     """
     pts = np.asarray(points).reshape(-1, np.asarray(points).shape[-1])
     # --- Compute structure factor and and averages ---
-    k, S, kgroup, Sgroup = structure_factor_and_average(pts, resolution=resolution)
+    k, S, kgroup, Sgroup = structure_factor_and_average(pts, resolution=resolution, precision=precision)
 
     # --- Axes setup ---
     own_fig = ax is None

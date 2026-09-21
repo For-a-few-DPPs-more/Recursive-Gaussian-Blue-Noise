@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 import jax
 import jax.numpy as jnp
-from ..math import torus_delta, clean_grad
+from ..math import torus_delta, clean_grad as clean
 
 
 
@@ -15,6 +15,16 @@ from ..math import torus_delta, clean_grad
 # Kernel functions  (JAX)
 # ──────────────────────────────────────────────────────────────────────────────
 
+def gauss_fun(x, y, sigma2):
+    delta = torus_delta(y - x)
+    dist2 = jnp.sum(delta ** 2, axis=-1)
+    return clean(jnp.exp(-dist2 / sigma2))
+
+def gauss_sin_fun(x, y, sigma2):
+    delta = jnp.sin(2*jnp.pi*(y-x))/jnp.pi
+    dist2 = jnp.sum(delta ** 2, axis=-1)
+    return clean(jnp.exp(-dist2 / sigma2))
+    
 def gauss_kernel(
     x: jnp.ndarray,
     y: jnp.ndarray,
@@ -27,7 +37,7 @@ def gauss_kernel(
     """
     delta = torus_delta(y - x)
     dist2 = jnp.sum(delta ** 2, axis=-1, keepdims=True)
-    return clean_grad(delta * jnp.exp(-dist2 / sigma2))
+    return clean(delta * jnp.exp(-dist2 / sigma2))
 
 
 def gauss_sin_kernel(
@@ -50,7 +60,7 @@ def gauss_sin_kernel(
     cos_term = b * (1.0 - jnp.cos(delta))
     sin_term = c * jnp.sin(delta)
     dist2 = jnp.sum(cos_term, axis=-1, keepdims=True)
-    return clean_grad(sin_term * jnp.exp(-dist2))
+    return clean(sin_term * jnp.exp(-dist2))
 
    
 def spectral_kernel(x, k, k_):
@@ -59,6 +69,6 @@ def spectral_kernel(x, k, k_):
     for small subsets of preselected wavevectors
     """
     phase   = jnp.sum(k * x, axis=-1, keepdims=True)
-    ek      = clean_grad(jnp.exp(phase))
+    ek      = clean(jnp.exp(phase))
     Sk      = jnp.sum(ek, axis=0, keepdims=True)
     return jnp.real(Sk * k_ * jnp.conjugate(ek))

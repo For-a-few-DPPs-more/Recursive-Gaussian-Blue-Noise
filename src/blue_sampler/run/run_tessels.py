@@ -39,7 +39,6 @@ def quad_signed_area(q):
     """area of a batch of quadrilaterals."""
     return area4(q[..., 0, :], q[..., 1, :], q[..., 2, :], q[..., 3, :])
 
-
 # ------------------------------------------------------------
 # Core Attempt function (Bimodal with safeguards)
 # ------------------------------------------------------------
@@ -56,6 +55,7 @@ def _attempt(quads, targets, pool, rng, eps=1e-9):
     h = np.stack((hA, hB, hC, hD), axis=-1)
 
     h_sorted = np.sort(h, axis=-1)
+
     l1, l2 = h_sorted[..., 1], h_sorted[..., 2]
 
     is_bottom2 = h <= l1[..., None]
