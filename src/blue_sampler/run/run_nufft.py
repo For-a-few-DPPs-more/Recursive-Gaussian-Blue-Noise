@@ -59,15 +59,12 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
     to_numpy = cfg.to_numpy
     nufft_lib = cfg.nufft_lib
 
-    eps = 1e-5 if precision == "float32" else 1e-10
-    resolution = 1.5
+    eps = 1e-4 if precision == "float32" else 1e-8
     # ---------- geometry ----------
     if D == 2:
-        kfrac = float(np.sqrt(2 / np.pi) * 2 * Chi)
+        kfrac = float(np.sqrt(2 / np.pi) * 4 * Chi)
     elif D == 3:
-        kfrac = float((2 / ((4 / 3) * np.pi)) ** (1 / 3) * 2 * Chi)
-    else:
-        kfrac = 2.0 * Chi
+        kfrac = float((2 / ((4 / 3) * np.pi)) ** (1 / 3) * 4 * Chi)
 
     if warmstart is not None:
         x = xp.asarray(warmstart, dtype=real_dtype).reshape(N, D)
@@ -75,7 +72,7 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
         rng = np.random.default_rng(seed)
         x = xp.asarray(rng.uniform(size=(N, D)), dtype=real_dtype)
 
-    G = int(np.ceil(N ** (1.0 / D)) * resolution)
+    G = int(np.ceil(N ** (1.0 / D)) * kfrac)
     if G % 2:
         G += 1
     n_modes = (G,) * D
@@ -89,7 +86,7 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
 
     r2 = sum(k**2 for k in ks)
     rpow = (r2 + 1e-3) ** (-1.0)
-    mask = (r2 > 0) & (r2 <= (G * min(kfrac / resolution, 1.0)) ** 2)
+    mask = (r2 > 0) & (r2 <= G ** 2)
     w = xp.where(mask, rpow, 0.0).astype(real_dtype)
     norm = float(xp.maximum(mask.sum(), 1.0))
     w = w / w.max()
@@ -155,9 +152,9 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
     if verbose:
         tgt_info = f"target={target.shape[0]} pts" if target is not None else "uniform"
         print(
-            f"[nufft | {device} | {precision}] "
-            f"N={N}  D={D}  G={G}  kfrac={kfrac:.4f}  "
-            f"n_iter={n_iter}  delta={delta:.4f}  ({tgt_info})"
+            f"[nufft | {device}] "
+            f"N={N}  D={D}   Chi={Chi:.2f}  "
+            f"n_iter={n_iter}   ({tgt_info})"
         )
         print("For Early-stopping : Ctrl-C (Keyboard interrupt ⏹️)")
 

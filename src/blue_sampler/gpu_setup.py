@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-def help_gpu():
+def check_gpu():
     """Check GPU availability and GPU dependencies.
 
     This function checks whether a GPU is available, whether JAX detects it,
@@ -116,7 +116,7 @@ def help_gpu():
         # the CUDA backend can be initialized.
         _ = cufinufft
 
-        print("Tout est bon, parfait !")
+        print("All right, config is operational !")
 
     except Exception as exc:
         print("GPU dependencies are installed, but the test failed.")

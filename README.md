@@ -33,8 +33,7 @@ blue.plot(x)
 blue.plot_structure_factor(x) 
 
 # Image stippling
-x = blue.im2points("plots/zebra.jpg") #return points
-x = blue.im2quads("plots/vangogh.jpg")   #quadrilaterals
+x = blue.im2points("plots/zebra.jpg")
 ```
 
 ---
@@ -65,11 +64,11 @@ x = blue.sample_points(N, D, method="rgbn") #(N, D)
 
 | Method         | Description                              |
 |----------------|------------------------------------------|
-| `gaussian`   | original Gaussian-Blue-Noise sampler (high quality, slow), A. G. M. Ahmed, J. Ren, and P. Wonka.  |
+| `gaussian`     | original Gaussian-Blue-Noise sampler (high quality, slow), A. G. M. Ahmed, J. Ren, and P. Wonka.  |
 | `rgbn`         | Recursive Gaussian-Blue-Noise (speed-up GBN with robust approximations)      |
-| `nufft`        | Non-Uniform FFT (speed-up spectral methods with fast fourier transform)    |
+| `nufft/nufft+` | Non-Uniform FFT (speed-up spectral methods with fast fourier transform)    |
 | `cstit`        | STIT inspired clustering (clusters replace complex polygon geometry)       |
-| `latjit`        | fast and simple lattice jittering        |
+| `latjit`       | fast and simple lattice jittering        |
 ---
 
 All presented samplers, having linear complexity in the number of points, are thus intended to scale up to million points (at least in 2/3D) beyond the minute (GPU) or 20 minutes (CPU).
@@ -115,7 +114,16 @@ x0 = blue.tessel2points(pw0) #(m, D=2)
 #in a fractal way
 x4 = blue.pinwheel_transform(x0, depth = 4) #(4*5**depth, m, D=2)
 ```
-> **Note on GPU support:** Most methods can run on CPU only, but they will benefit from GPU acceleration. Run `blue.help_gpu()` for more details on that.
+> **Note on GPU support:** Most methods can run on CPU only, but they can benefit from GPU acceleration.
+> To install the optional GPU dependencies for a CUDA 12 environment:
+> ```bash
+> pip install blue-sampler[gpu]
+> ```
+> If the CUDA 12 installation fails, you may need to install `jax`, `cupy`, and `cufinufft` manually. Once installed, you can check that GPU support is correctly configured by running:
+> ```python
+> import blue_sampler
+> blue_sampler.check_gpu()
+> ```
 
 > **Note on adaptative sampling**: The sampling methods implemented here support adaptive sampling from a target distribution. This feature is still experimental beyond 2d distributions
  
@@ -153,7 +161,7 @@ The algorithms and mathematical tools implemented in **blue-sampler** are based 
   *ACM Transactions on Graphics (SIGGRAPH Asia), 41(6), 2022.*  
   DOI: 10.1145/3550454.3555519
 
-- **FReSCo (Non uniform FFT)**  
+- **FReSCo**  
   *A. Shih, M. Casiulis, and S. Martiniani.*  
   **Fast Generation of Spectrally-Shaped Disorder.**  
   *Physical Review E*, 110(3):034122, 2024.  
@@ -176,6 +184,9 @@ The algorithms and mathematical tools implemented in **blue-sampler** are based 
 - **Sobol sequences**  
   Wrapped from `scipy.stats.qmc.Sobol` (SciPy).
 
+- **Nufft**: The non uniform fast fourier transform (nufft) is performed using the finufft library
+  [FIN] A parallel non-uniform fast Fourier transform library based on an “exponential of semicircle” \
+   kernel. A. H. Barnett, J. F. Magland, and L. af Klinteberg. SIAM J. Sci. Comput. 41(5), C479-C504 (2019).
 ---
 
 # Positioning and scope

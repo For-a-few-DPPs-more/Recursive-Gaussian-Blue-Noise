@@ -55,6 +55,7 @@ def _attempt(quads, targets, pool, rng, eps=1e-9):
     h = np.stack((hA, hB, hC, hD), axis=-1)
 
     h_sorted = np.sort(h, axis=-1)
+
     l1, l2 = h_sorted[..., 1], h_sorted[..., 2]
 
     is_bottom2 = h <= l1[..., None]

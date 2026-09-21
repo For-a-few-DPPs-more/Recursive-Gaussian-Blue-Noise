@@ -42,7 +42,7 @@ from .momentum.momentum import _from_geometry
 
 from .viz import plot, plot_polygons
 
-BlueNoiseMethod = Literal["rgbn", "nufft", "gaussian", "latjit", "cstit"]
+BlueNoiseMethod = Literal["rgbn", "nufft", "nufft+", "gaussian", "latjit", "cstit"]
 WarmstartMethod = Literal["Goodlattice", "Sobol", "Pinwheel"]
 ClusterMethod = Literal["Goodlattice", "Sobol", "Pinwheel"]
 
@@ -132,7 +132,7 @@ def sample_points(
         Global multiplier for the learning-rate. A default is provided, but
         fine tuning it might give better results
 
-    method : {"gaussian", "rgbn", "nufft", "latjit", "cstit"}, default "rgbn"
+    method : {"gaussian", "rgbn", "nufft", "nufft+", "latjit", "cstit"}, default "rgbn"
         Sampling algorithm:
         - ``"gaussian"`` — Exact Gaussian Blue Noise (GBN), with no
                   neighbourhood truncation. High quality but slow for large N.
@@ -140,6 +140,7 @@ def sample_points(
           optimisation with a truncated neighbourhood.
         - ``"nufft"``    — Spectral optimisation using a Non-Uniform Fast
           Fourier Transform.
+        - ``"nufft+"``    — Same, but with criticall Chi parametter = 0.4 (slower, better).
         - ``"cstit"``    — Optimisation based on a stable-partition
           criterion, inspired by the fair STIT method.
         - ``"latjit"``   — Randomly jittered lattice. Fast and simple.
@@ -172,14 +173,14 @@ def sample_points(
     When sampling with a target, be sure that it is normalised and belongs to [0, 1)**D or weird things will happen.
     """
 
-    methods = ["rgbn", "gaussian", "nufft", "latjit", "cstit"]
+    methods = ["rgbn", "gaussian", "nufft", "nufft+", "latjit", "cstit"]
     n_iter = n_iter_scale
     if method not in methods:
         raise ValueError(f"unknown method {method!r}, must be one of {methods}")
 
 
     def assert_valid_target(target, N, method, tol=1e-5):
-        points_only = True if method in ["cstit", "nufft"] else False
+        points_only = True if method in ["cstit", "nufft", "nufft+"] else False
         D2_only = True if method in ["gaussian", "rgbn"] else False
         if isinstance(target, str):
             assert Path(target).is_file(), f"Target image not found: {target!r}"
@@ -201,7 +202,7 @@ def sample_points(
     
     has_target = targets is not None
     if has_target:        
-        if method not in ["bruteforce","rgbn", "cstit", "nufft"]:
+        if method not in ["bruteforce","rgbn", "cstit", "nufft", "nufft+"]:
             raise ValueError(
                 f"a target density was given but method {method} does not support "
                 "a custom target; use method='rgbn', 'bruteforce', 'nufft', or 'cstit' instead."
@@ -242,12 +243,14 @@ def sample_points(
     else:
         x = None
 
-    if  method == "nufft":
+    if method in ["nufft", "nufft+"]:
         assert D <= 3, (
                 f"nufft method require points dimension D <= 3, got D = {D} "
         )
+        Chi = 0.3 if method == "nufft" else 0.4
+        n_iter = 20*n_iter if method == "nufft" else 100*n_iter
         return _nufft_pipeline(N, D, lr=lr, warmstart=x, target = targets,
-                               verbose=verbose, n_iter= 20 * n_iter)
+                               verbose=verbose, n_iter= n_iter, Chi = Chi)
 
     if verbose >= 1:
         print(f"✦ {D}D blue-noise pipeline — sampling {N:,} points")

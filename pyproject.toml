@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name        = "blue_sampler"
-version     = "2.1.1"
+version     = "2.1.2"
 description = "Stealthy point-pattern sampling on the unit torus"
 readme      = "README.md"
 license     = { text = "MIT" }
@@ -26,11 +26,18 @@ keywords = [
 dependencies = [
     "numpy",
     "jax",
-    "jaxlib",
     "optax",
     "matplotlib",
     "finufft",
-    "squarenet >= 1.3",
+    "gridpoints",
+]
+
+[project.optional-dependencies]
+gpu = [
+    "jax[cuda12]",
+    "cupy-cuda12x[ctk]",
+    "cufinufft",
+    "pytorch",
 ]
 
 [project.urls]

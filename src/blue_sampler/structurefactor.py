@@ -48,7 +48,7 @@ def structure_factor(
     if D <= 3:
         # FINUFFT is CPU-only → force a NumPy view once, then stay in NumPy
         pts_np = to_numpy(pts)
-        n_modes = 2 * int(np.ceil(kmax)) + 1
+        n_modes = int(np.ceil(kmax)) + 1
         x = 2.0 * np.pi * pts_np.T          # (D, N)
         c = np.ones(N, dtype=complex_dtype)
 
