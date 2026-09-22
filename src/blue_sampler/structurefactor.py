@@ -49,20 +49,19 @@ def structure_factor(
         n_modes = int(xp.ceil(kmax)) + 1
         x = 2.0 * xp.pi * pts.T          # (D, N)
         c = xp.ones(N, dtype=complex_dtype)
+        n = xp.arange(-(n_modes // 2), n_modes - (n_modes // 2))
 
         if D == 1:
-            fk = nufft_lib.nufft1d1(x[0].copy(), c, n_modes, eps=eps, isign=1)
-            n = xp.arange(-(n_modes // 2), n_modes - (n_modes // 2))
-            kint = n[:, None]
+            kint = to_numpy(n[:, None])
+            fk = to_numpy(nufft_lib.nufft1d1(x[0].copy(), c, n_modes, eps=eps, isign=1))
         elif D == 2:
             fk = nufft_lib.nufft2d1(
                 x[0].copy(), x[1].copy(), c, (n_modes, n_modes),
                 eps=eps, isign=1
             )
-            n = xp.arange(-(n_modes // 2), n_modes - (n_modes // 2))
             nx, ny = xp.meshgrid(n, n, indexing="ij")
-            kint = xp.stack([nx.ravel(), ny.ravel()], axis=1)
-            fk = fk.ravel()
+            kint = to_numpy(xp.stack([nx.ravel(), ny.ravel()], axis=1))
+            fk = to_numpy(fk.ravel())
         else:  # D == 3
             max_chunk = 400_000
             fk = xp.zeros((n_modes, n_modes, n_modes), dtype=complex_dtype)
@@ -77,13 +76,12 @@ def structure_factor(
                     eps=eps,
                     isign=1,
                 )
-            n = xp.arange(-(n_modes // 2), n_modes - (n_modes // 2))
             nx, ny, nz = xp.meshgrid(n, n, n, indexing="ij")
-            kint = xp.stack([nx.ravel(), ny.ravel(), nz.ravel()], axis=1)
-            fk = fk.ravel()
+            kint = to_numpy(xp.stack([nx.ravel(), ny.ravel(), nz.ravel()], axis=1))
+            fk = to_numpy(fk.ravel())
 
-        Sk = to_numpy(xp.abs(fk) ** 2 / N)
-        knorm = np.linalg.norm(to_numpy(kint), axis=1) / kunit
+        Sk = np.abs(fk) ** 2 / N
+        knorm = np.linalg.norm(kint, axis=1) / kunit
 
     else:
         # Monte-Carlo path – stay fully on the chosen device
