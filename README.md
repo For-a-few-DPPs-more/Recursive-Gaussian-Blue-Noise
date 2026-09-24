@@ -161,7 +161,7 @@ The algorithms and mathematical tools implemented in **blue-sampler** are based 
   *ACM Transactions on Graphics (SIGGRAPH Asia), 41(6), 2022.*  
   DOI: 10.1145/3550454.3555519
 
-- **FReSCo**  
+- [FReSCo](https://github.com/martiniani-lab/FReSCo)
   *A. Shih, M. Casiulis, and S. Martiniani.*  
   **Fast Generation of Spectrally-Shaped Disorder.**  
   *Physical Review E*, 110(3):034122, 2024.  
@@ -184,7 +184,7 @@ The algorithms and mathematical tools implemented in **blue-sampler** are based 
 - **Sobol sequences**  
   Wrapped from `scipy.stats.qmc.Sobol` (SciPy).
 
-- **Nufft**: The non uniform fast fourier transform (nufft) is performed using the finufft library
+- **Nufft**: The non uniform fast fourier transform (nufft) is performed using the [finufft](https://github.com/flatironinstitute/finufft) / [cufinufft](https://github.com/flatironinstitute/cufinufft)  library
   [FIN] A parallel non-uniform fast Fourier transform library based on an “exponential of semicircle” \
    kernel. A. H. Barnett, J. F. Magland, and L. af Klinteberg. SIAM J. Sci. Comput. 41(5), C479-C504 (2019).
 ---
