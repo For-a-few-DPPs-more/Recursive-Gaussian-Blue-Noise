@@ -6,7 +6,7 @@
 
 # blue-sampler
 
-**Generate large stealthy point patterns** (i.e. blue noise) on the unit torus $[0, 1)^D$. 📐
+**Generate large stealthy point patterns** (i.e. blue noise) on the unit torus $[0, 1)^D$. 
 
 Stealthy point patterns exhibit vanishing density fluctuations at low frequencies, making them particularly suited for **Monte Carlo** integration, **image stippling**, and any application requiring well-distributed, low-discrepancy points. 
 
@@ -136,9 +136,9 @@ x4 = blue.pinwheel_transform(x0, depth = 4) #(4*5**depth, m, D=2)
 
 | Dimension | Status       |
 |-----------|--------------|
-| 2–3D      | Fast ⚡       |
+| 2–3D      | Fast |
 | 4–5D      | Supported    |
-| ≥6D       | Experimental 🧪 |
+| ≥6D       | Experimental  |
 
 ---
 
@@ -150,7 +150,7 @@ x4 = blue.pinwheel_transform(x0, depth = 4) #(4*5**depth, m, D=2)
 
 ---
 
-## 📚 References
+##  References
 
 The algorithms and mathematical tools implemented in **blue-sampler** are based or inspired from the following works.
 
