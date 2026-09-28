@@ -148,6 +148,7 @@ def check_gpu():
 
     except Exception as exc:
         print("GPU dependencies are installed, but the test failed.")
+        print(f" If keops installation failed, this is not a problem (keops is an optional dependency to speed-up sampling).")
         print(f"Error: {exc}")
 
 

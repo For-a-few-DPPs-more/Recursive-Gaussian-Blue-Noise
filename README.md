@@ -130,7 +130,7 @@ x4 = blue.pinwheel_transform(x0, depth = 4) #(4*5**depth, m, D=2)
 > blue_sampler.check_gpu()
 > ```
 > ```bash
-> pip install blue-sampler[gpu]
+> pip install blue-sampler[gpu] #also pip install blue-sampler[keops] if needed, see bellow
 > ```
 > If the CUDA 12 installation fails, you may need to install `jax`, `torch`, `cupy`, and `cufinufft` manually. Once installed, you can check that GPU support is correctly configured by running:
 > ```python

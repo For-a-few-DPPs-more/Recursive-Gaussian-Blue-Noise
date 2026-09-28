@@ -234,7 +234,7 @@ def sample_points(
 
     if method in ["nufft", "nufft+"]:
         nufft_pipeline = _nufft_pipeline if D <= 3 else _nufft_pipeline_jax
-        if (N >= 3_000) and KEOPS_AVAILABLE:
+        if (N >= 3_000) and KEOPS_AVAILABLE and D >= 4:
             try:
                 from .run.run_nufft_keops import _nufft_pipeline_keops
                 nufft_pipeline = _nufft_pipeline_keops
