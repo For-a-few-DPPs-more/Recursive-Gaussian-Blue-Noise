@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name        = "blue_sampler"
-version     = "2.1.7"
+version     = "2.1.8"
 description = "Stealthy point-pattern sampling on the unit torus"
 readme      = "README.md"
 license     = { text = "MIT" }
@@ -38,6 +38,9 @@ gpu = [
     "cupy-cuda12x[ctk]",
     "cufinufft",
     "torch",
+]
+keops = [
+    "pykeops"
 ]
 
 [project.urls]

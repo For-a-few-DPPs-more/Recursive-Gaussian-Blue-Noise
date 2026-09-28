@@ -43,6 +43,9 @@ from .momentum.momentum import _from_geometry
 
 from .viz import plot, plot_polygons
 
+
+from .run.run_bruteforce_keops import KEOPS_AVAILABLE
+
 BlueNoiseMethod = Literal["rgbn", "nufft", "nufft+", "gaussian", "latjit", "cstit"]
 WarmstartMethod = Literal["Goodlattice", "Sobol", "Pinwheel"]
 ClusterMethod = Literal["Goodlattice", "Sobol", "Pinwheel"]
@@ -231,6 +234,14 @@ def sample_points(
 
     if method in ["nufft", "nufft+"]:
         nufft_pipeline = _nufft_pipeline if D <= 3 else _nufft_pipeline_jax
+        if (N >= 3_000) and KEOPS_AVAILABLE:
+            try:
+                from .run.run_nufft_keops import _nufft_pipeline_keops
+                nufft_pipeline = _nufft_pipeline_keops
+            except:
+                if verbose >= 1:
+                    print("keops unavailable. default to slow kernel")
+
         Chi = 0.35 if method == "nufft" else 0.43
         if D <= 3:
             n_iter = 20*n_iter if method == "nufft" else 80*n_iter
@@ -249,27 +260,17 @@ def sample_points(
 
     logger = ProgressLogger(D, verbose)
     if bruteforce:
-        if D == 2:
-            n_iter *= max(10, int(N/24))
-        if D == 3:
-            n_iter *= max(10, int(N/600))
-        if D >= 4:
-            n_iter *= max(10, int(N/2000))
+        if (targets is None) and (N >= 3_000) and KEOPS_AVAILABLE:
+            try:
+                from .run.run_bruteforce_keops import make_pipeline
+                return make_pipeline(N, D, 10*n_iter, lr, verbose)(x)
+            except:
+                if verbose >= 1:
+                    print("keops unavailable. default to slow kernel")
         ctx = logger.enter_level(N, D, 0)
         ctx.start()
-        if D >= 4 and targets is None:
-            try:
-                import torch
-                assert torch.cuda.is_available()
-                from .run.run_bruteforce_gpu_flash import _flash_pipeline
-                blue = _flash_pipeline(N, D, n_iter, lr, ctx)
-                sampled_points = np.array(blue(x))
-                logger.exit_level()
-                return sampled_points
-            except:
-                pass
         blue = _bruteforce_pipeline(
-            N, D, n_iter, ctx=ctx,
+            N, D, n_iter*10, ctx=ctx,
             lr=lr,
             target=targets,
         )

@@ -4,7 +4,7 @@ def check_gpu():
     """Check GPU availability and GPU dependencies.
 
     This function checks whether a GPU is available, whether JAX detects it,
-    and whether CuPy and cuFINUFFT are installed correctly.
+    and whether CuPy, cuFINUFFT and KeOps are installed correctly.
     """
     import shutil
     import subprocess
@@ -101,7 +101,23 @@ def check_gpu():
         return
 
     # ------------------------------------------------------------------
-    # 5. Dummy test
+    # 5. Check KeOps
+    # ------------------------------------------------------------------
+    try:
+        from pykeops.numpy import LazyTensor
+
+        print("KeOps: installed")
+
+    except ImportError:
+        print("KeOps is not installed.")
+        print("Install pykeops.")
+        return
+    except Exception as exc:
+        print(f"KeOps check failed: {exc}")
+        return
+
+    # ------------------------------------------------------------------
+    # 6. Dummy test
     # ------------------------------------------------------------------
     try:
         import numpy as np
@@ -115,6 +131,18 @@ def check_gpu():
         # Keep this deliberately small: the goal is only to verify that
         # the CUDA backend can be initialized.
         _ = cufinufft
+
+        # KeOps GPU test
+        x = np.random.rand(100, 3).astype(np.float32)
+        y = np.random.rand(100, 3).astype(np.float32)
+
+        x_i = LazyTensor(x[:, None, :])
+        y_j = LazyTensor(y[None, :, :])
+
+        dist2 = ((x_i - y_j) ** 2).sum(-1)
+        result = dist2.sum_reduction(axis=1).ravel()
+
+        _ = result
 
         print("All right, config is operational !")
 

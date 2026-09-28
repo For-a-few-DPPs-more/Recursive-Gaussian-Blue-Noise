@@ -119,7 +119,7 @@ x0 = blue.tessel2points(pw0) #(m, D=2)
 #in a fractal way
 x4 = blue.pinwheel_transform(x0, depth = 4) #(4*5**depth, m, D=2)
 ```
-> **Note on GPU support:** Most methods can run on CPU only, but they can benefit from GPU acceleration.
+> **Note on GPU support**: Most methods can run on CPU only, but they can benefit from GPU acceleration.
 > To install the optional GPU dependencies for a CUDA 12 environment:
 > ```bash
 > pip install blue-sampler[gpu]
@@ -129,6 +129,19 @@ x4 = blue.pinwheel_transform(x0, depth = 4) #(4*5**depth, m, D=2)
 > import blue_sampler
 > blue_sampler.check_gpu()
 > ```
+> ```bash
+> pip install blue-sampler[gpu]
+> ```
+> If the CUDA 12 installation fails, you may need to install `jax`, `torch`, `cupy`, and `cufinufft` manually. Once installed, you can check that GPU support is correctly configured by running:
+> ```python
+> import blue_sampler
+> blue_sampler.check_gpu()
+> ```
+
+
+> **Note on Keops acceleration**: gaussian and nufft (if dimension D >= 4) samplers will get much faster on gpu,
+>if pykeops is installed along with all it's dependency. This is optional, and mainly usefull to sample large datasets.
+>See [pykeops](https://www.kernel-operations.io/keops/python/installation.html#requirements) documentation
 
 > **Note on adaptative sampling**: The sampling methods implemented here support adaptive sampling from a target distribution. This feature is still experimental beyond 2d distributions
 
@@ -188,9 +201,14 @@ The algorithms and mathematical tools implemented in **blue-sampler** are based 
 - **Sobol sequences**  
   Wrapped from `scipy.stats.qmc.Sobol` (SciPy).
 
+The package strongly benefits from following libraries:
+
 - **Nufft**: The non uniform fast fourier transform (nufft) is performed using the [finufft](https://github.com/flatironinstitute/finufft) / [cufinufft](https://github.com/flatironinstitute/cufinufft)  library
   [FIN] A parallel non-uniform fast Fourier transform library based on an “exponential of semicircle” \
    kernel. A. H. Barnett, J. F. Magland, and L. af Klinteberg. SIAM J. Sci. Comput. 41(5), C479-C504 (2019).
+
+- **KEOPS** B. Charlier, J. Feydy, J. A. Glaunès, F.-D. Collin, and G. Durif. “Kernel Operations on the GPU, with Autodiff, without Memory Overflows.” *Journal of Machine Learning Research*, 22(74):1–6, 2021. See [keops](https://www.kernel-operations.io/keops/index.html).
+
 ---
 
 # Positioning and scope
