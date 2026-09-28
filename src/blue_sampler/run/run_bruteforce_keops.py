@@ -87,20 +87,20 @@ def make_pipeline(N, D, n_iter=60, lrbase=1.0, verbose=1):
         x = (
             np.random.rand(N, D)
             if init is None
-            else np.asarray(init, dtype=np.float32).copy()
+            else np.asarray(init)
         )
-        x = np.asarray(x, dtype=np.float32)
+        x = np.ascontiguousarray(x, dtype=np.float32)          # FIX: copie contiguë float32
 
-        steps = np.array([0.4, 0.7, 1.0, 1.3, 1.6])
+        steps = np.array([0.4, 0.7, 1.0, 1.3, 1.6], dtype=np.float32)  # FIX: float32
         sample_size = min(N, 100)
 
-        step_lr = lr
+        step_lr = np.float32(lr)                               # FIX: float32
 
         log(f"sampling: {n_steps} iterations")
 
         for it in range(n_steps):
             gradx = grad(x)
-            gradnorm = np.linalg.norm(gradx, axis=-1).mean()
+            gradnorm = np.float32(np.linalg.norm(gradx, axis=-1).mean())  # FIX
 
             idx = (
                 np.arange(N)
@@ -109,7 +109,7 @@ def make_pipeline(N, D, n_iter=60, lrbase=1.0, verbose=1):
             )
 
             candidates = [
-                pacman(x - step * step_lr * gradx / gradnorm)
+                pacman(x - step * step_lr * gradx / gradnorm).astype(np.float32)  # FIX
                 for step in steps
             ]
             scores = [
@@ -118,7 +118,7 @@ def make_pipeline(N, D, n_iter=60, lrbase=1.0, verbose=1):
             ]
 
             best = np.argmin(scores)
-            step_lr *= steps[best]
+            step_lr = np.float32(step_lr * steps[best])        # FIX: reste float32
             x = candidates[best]
 
             if verbose >= 2 and (it == 0 or (it + 1) % 10 == 0):
