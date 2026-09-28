@@ -131,9 +131,8 @@ x4 = blue.pinwheel_transform(x0, depth = 4) #(4*5**depth, m, D=2)
 > ```
 
 > **Note on adaptative sampling**: The sampling methods implemented here support adaptive sampling from a target distribution. This feature is still experimental beyond 2d distributions
- :
-> **Note on structure factor**: The structure factor (sf) characterizes the density fluctuations of the points in Fourier space and is equivalent to the **power spectrum** (up to normalization). The estimation of sf assumes that the points domain is the unit hypercube and uses the standard `scattering intensity` estimator.
 
+> **Note on structure factor**: The structure factor (sf) characterizes the density fluctuations of the points in Fourier space and is equivalent to the **power spectrum** (up to normalization). The estimation of sf assumes that the points domain is the unit hypercube and uses the standard `scattering intensity` estimator.
 
 > **Note on cstit**: The conversion from geometric objects (polygons, clusters) to point sets is performed by tessel2points resp. cluster2points using a standard **moment matching** technique developped by L. Lotz and M. A. Klatt (see ref section).
 ---
