@@ -78,7 +78,7 @@ The recommanded default is:
  - dimension 6 or more: `gaussian`
 
  If sampling runtime is realy a problem, then  `cstit ` is recommended (much faster, but not so good blue noise)
-. QUality can be checked with the structure factor.
+. QUality can be checked with the `structure factor`.
 
 ## Alternative Samplers
 
@@ -124,7 +124,7 @@ x4 = blue.pinwheel_transform(x0, depth = 4) #(4*5**depth, m, D=2)
 > ```bash
 > pip install blue-sampler[gpu]
 > ```
-> If the CUDA 12 installation fails, you may need to install `jax`, `cupy`, and `cufinufft` manually. Once installed, you can check that GPU support is correctly configured by running:
+> If the CUDA 12 installation fails, you may need to install `jax`, `torch`, `cupy`, and `cufinufft` manually. Once installed, you can check that GPU support is correctly configured by running:
 > ```python
 > import blue_sampler
 > blue_sampler.check_gpu()
