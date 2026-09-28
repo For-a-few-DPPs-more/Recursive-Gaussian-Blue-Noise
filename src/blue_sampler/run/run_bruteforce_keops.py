@@ -69,7 +69,7 @@ def make_pipeline(N, D, n_iter=60, lrbase=1.0, verbose=1):
 
     def log(message, level=1):
         if verbose >= level:
-            print(f"[stealthy] {message}")
+            print(f"[gaussian keops] {message}")
 
     log(
         f"setup: N={N}, D={D}, σ²={sigma2:.3g}, "
@@ -94,6 +94,8 @@ def make_pipeline(N, D, n_iter=60, lrbase=1.0, verbose=1):
         steps = np.array([0.4, 0.7, 1.0, 1.3, 1.6])
         sample_size = min(N, 100)
 
+        step_lr = lr
+
         log(f"sampling: {n_steps} iterations")
 
         for it in range(n_steps):
@@ -107,7 +109,7 @@ def make_pipeline(N, D, n_iter=60, lrbase=1.0, verbose=1):
             )
 
             candidates = [
-                pacman(x - step * lr * gradx / gradnorm)
+                pacman(x - step * step_lr * gradx / gradnorm)
                 for step in steps
             ]
             scores = [
@@ -116,13 +118,13 @@ def make_pipeline(N, D, n_iter=60, lrbase=1.0, verbose=1):
             ]
 
             best = np.argmin(scores)
-            lr *= steps[best]
+            step_lr *= steps[best]
             x = candidates[best]
 
             if verbose >= 2 and (it == 0 or (it + 1) % 10 == 0):
                 log(
                     f"iteration {it + 1:>4}/{n_steps} | "
-                    f"step={steps[best]:.1f} | lr={lr:.3g}"
+                    f"loss={gradnorm:.1f}"
                 )
 
         log("Done")

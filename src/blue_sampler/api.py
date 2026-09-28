@@ -234,7 +234,7 @@ def sample_points(
 
     if method in ["nufft", "nufft+"]:
         nufft_pipeline = _nufft_pipeline if D <= 3 else _nufft_pipeline_jax
-        if (N >= 3_000) and KEOPS_AVAILABLE and D >= 4:
+        if (N >= 5_000) and KEOPS_AVAILABLE and D >= 4:
             try:
                 from .run.run_nufft_keops import _nufft_pipeline_keops
                 nufft_pipeline = _nufft_pipeline_keops
@@ -260,7 +260,7 @@ def sample_points(
 
     logger = ProgressLogger(D, verbose)
     if bruteforce:
-        if (targets is None) and (N >= 3_000) and KEOPS_AVAILABLE:
+        if (targets is None) and (N >= 5_000) and KEOPS_AVAILABLE:
             try:
                 from .run.run_bruteforce_keops import make_pipeline
                 return make_pipeline(N, D, 10*n_iter, lr, verbose)(x)
