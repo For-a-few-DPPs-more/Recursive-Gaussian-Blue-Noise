@@ -18,9 +18,9 @@ def _make_hyperparams(N, D, n_iter=60, lrbase=1.0):
     sigma2 = 2.0 * dx**2
     high_dim = sigma2 >= 0.03
 
-    lr = 0.1 * dx * lrbase
-    scale = {2: 240, 3: 6000}.get(D, 20_000)
-    n_steps = max(n_iter, int(n_iter * N / scale))
+    lr = 0.03 * dx * lrbase
+    scale = {2: 240, 3: 6000, 4: 60_000}.get(D, 100_000)
+    n_steps = max(40, int(n_iter * N / scale))
 
     a = 2.0 * np.pi
     b = 4.0 / (sigma2 * a**2)

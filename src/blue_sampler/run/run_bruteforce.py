@@ -40,9 +40,9 @@ def _bruteforce_pipeline(
     sigma2 = 2.0 * DX ** 2
     high_D = sigma2 >= 0.03
 
-    lr    = 0.1 * DX * lr
-    scale = {2: 240, 3: 6000}.get(D, 20_000)
-    Niter = max(n_iter, int(n_iter * N / scale))
+    lr    = 0.03 * DX * lr
+    scale = {2: 240, 3: 6000, 4: 60_000}.get(D, 100_000)
+    Niter = max(40, int(n_iter * N / scale))
 
     if high_D:
         a = 2.0 * np.pi
