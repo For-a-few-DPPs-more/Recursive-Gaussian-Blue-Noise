@@ -140,7 +140,7 @@ x4 = blue.pinwheel_transform(x0, depth = 4) #(4*5**depth, m, D=2)
 
 
 > **Note on Keops acceleration**: gaussian and nufft (if dimension D >= 4) samplers will get much faster on gpu,
->if pykeops is installed along with all it's dependency. This is optional, and mainly usefull to sample large datasets.
+>if pykeops is installed along with all it's dependency (which will be automatically detected). This is optional, and mainly usefull to sample large datasets.
 >See [pykeops](https://www.kernel-operations.io/keops/python/installation.html#requirements) documentation
 
 > **Note on adaptative sampling**: The sampling methods implemented here support adaptive sampling from a target distribution. This feature is still experimental beyond 2d distributions
