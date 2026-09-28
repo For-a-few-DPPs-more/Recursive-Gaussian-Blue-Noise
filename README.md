@@ -73,7 +73,13 @@ x = blue.sample_points(N, D, method="rgbn") #(N, D)
 
 All presented samplers, having linear complexity in the number of points, are thus intended to scale up to million points (at least in 2/3D) beyond the minute (GPU) or 20 minutes (CPU).
 Were their will be a difference will be in supported dimensions (or cardinality constrains on N), spectral quality, speed,
-gpu support, target support. Depending on one's specific task, it is recommanded to give them all a quick try, starting with rgbn and nufft. QUality can be checked with the structure factor and by ploting the points if D <= 3.
+gpu support, target support:
+The recommanded default is: 
+ - dimension D = 1/2/3: `nufft`
+ - dimension D = 4/5: `rgbn` or `gaussian` (depending on N + gpu availability)
+ - dimension 6 or more: `gaussian`
+ If sampling runtime is realy a problem, then  `cstit ` is recommended (much faster, but not so good blue noise)
+. QUality can be checked with the structure factor.
 
 ## Alternative Samplers
 

@@ -73,7 +73,7 @@ def plot(
     scale_delta = scale_max - scale_min
 
     if auto_zoom and (len(pts) > max_points):
-        offset = np.random.rand(2)[None]
+        offset = np.random.rand(D)[None]
         zoom = (max_points / len(pts)) ** (1.0 / D)
         dtpts = pts / scale_delta - scale_min
         pts = pts[
