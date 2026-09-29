@@ -69,7 +69,17 @@ x = blue.sample_points(N, D, method="rgbn") #(N, D)
 | `nufft/nufft+` | Non-Uniform FFT (speed-up spectral methods with fast fourier transform)    |
 | `cstit`        | STIT inspired clustering (clusters replace complex polygon geometry)       |
 | `latjit`       | fast and simple lattice jittering        |
+
 ---
+
+## Supported Dimensions
+
+| Dimension | Status       |
+|-----------|--------------|
+| 2–3D      | Fast |
+| 4–5D      | Supported    |
+| ≥6D       | Experimental  |
+
 
 All presented samplers, having linear complexity in the number of points, are thus intended to scale up to million points (at least in 2/3D) beyond the minute (GPU) or 20 minutes (CPU).
 The recommanded default is: 
@@ -110,15 +120,6 @@ The recommanded default is:
 > **Note on structure factor**: The structure factor (sf) characterizes the density fluctuations of the points in Fourier space and is equivalent to the **power spectrum** (up to normalization). The estimation of sf assumes that the points domain is the unit hypercube and uses the standard `scattering intensity` estimator.
 
 > **Note on cstit**: The conversion from geometric objects (polygons, clusters) to point sets is performed by tessel2points resp. cluster2points using a standard **moment matching** technique developped by L. Lotz and M. A. Klatt (see ref section).
----
-
-## Supported Dimensions
-
-| Dimension | Status       |
-|-----------|--------------|
-| 2–3D      | Fast |
-| 4–5D      | Supported    |
-| ≥6D       | Experimental  |
 
 ---
 
