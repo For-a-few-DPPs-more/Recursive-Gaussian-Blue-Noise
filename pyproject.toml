@@ -12,14 +12,14 @@ requires-python = ">=3.9"
 
 keywords = [
     "blue noise",
-    "stealthy",
+    "hyperuniformity",
+    "gaussian blue noise",
     "point process",
+    "Monte Carlo",
     "stipling",
     "sampling",
     "structure factor",
-    "GBN",
     "STIT",
-    "Pinwheel",
     "NuFFT",
 ]
 
