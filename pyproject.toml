@@ -37,10 +37,9 @@ gpu = [
     "jax[cuda12]",
     "cupy-cuda12x[ctk]",
     "cufinufft",
-    "torch",
 ]
 keops = [
-    "pykeops"
+    "pykeops",
 ]
 
 [project.urls]
