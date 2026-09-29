@@ -80,45 +80,7 @@ The recommanded default is:
  If sampling runtime is realy a problem, then  `cstit ` is recommended (much faster, but not so good blue noise)
 . QUality can be checked with the `structure factor`.
 
-## Alternative Samplers
 
-### Sobol sequence 📏
-
-```python
-x = blue.sobol(N, D) #(N, D)
-```
-Low-discrepancy quasi-random sequence. 
-
-### STIT Tessellations (2D only) 🧩
-
-```python
-# Raw STIT tessellation (quadrilaterals)
-ts = blue.sample_tessels(N) #(N, 4, D=2)
-blue.plot_tessels(ts) 
-
-# Convert to point set
-x = blue.tessel2points(ts) #(N, m, D=2)
-```
-
-### Pinwheel Tilings (2D only) 𖣘
-
-```python
-# Base pinwheel triangle
-pw0 = blue.pinwheel_base()  #(3, D=2)
-
-# Triangulation level 4
-pw4 = blue.pinwheel_transform(pw0, depth=4) #(4*5**depth, 3, D=2)
-blue.plot_polygons(pw4) 
-
-#===============================
-# Convert Pinwheel to point set:
-#===============================
-#sample points from the BASE pinwheel
-x0 = blue.tessel2points(pw0) #(m, D=2)
-#then replicate the sample on the full triangulation,
-#in a fractal way
-x4 = blue.pinwheel_transform(x0, depth = 4) #(4*5**depth, m, D=2)
-```
 > **Note on GPU support**: Most methods can run on CPU only, but they can benefit from GPU acceleration.
 > To install the optional GPU dependencies for a CUDA 12 environment:
 > ```bash
@@ -208,6 +170,48 @@ The package strongly benefits from following libraries:
    kernel. A. H. Barnett, J. F. Magland, and L. af Klinteberg. SIAM J. Sci. Comput. 41(5), C479-C504 (2019).
 
 - **KEOPS** B. Charlier, J. Feydy, J. A. Glaunès, F.-D. Collin, and G. Durif. “Kernel Operations on the GPU, with Autodiff, without Memory Overflows.” *Journal of Machine Learning Research*, 22(74):1–6, 2021. See [keops](https://www.kernel-operations.io/keops/index.html).
+
+---
+
+## Alternative Samplers
+
+### Sobol sequence 📏
+
+```python
+x = blue.sobol(N, D) #(N, D)
+```
+Low-discrepancy quasi-random sequence. 
+
+### STIT Tessellations (2D only) 🧩
+
+```python
+# Raw STIT tessellation (quadrilaterals)
+ts = blue.sample_tessels(N) #(N, 4, D=2)
+blue.plot_tessels(ts) 
+
+# Convert to point set
+x = blue.tessel2points(ts) #(N, m, D=2)
+```
+
+### Pinwheel Tilings (2D only) 𖣘
+
+```python
+# Base pinwheel triangle
+pw0 = blue.pinwheel_base()  #(3, D=2)
+
+# Triangulation level 4
+pw4 = blue.pinwheel_transform(pw0, depth=4) #(4*5**depth, 3, D=2)
+blue.plot_polygons(pw4) 
+
+#===============================
+# Convert Pinwheel to point set:
+#===============================
+#sample points from the BASE pinwheel
+x0 = blue.tessel2points(pw0) #(m, D=2)
+#then replicate the sample on the full triangulation,
+#in a fractal way
+x4 = blue.pinwheel_transform(x0, depth = 4) #(4*5**depth, m, D=2)
+```
 
 ---
 
