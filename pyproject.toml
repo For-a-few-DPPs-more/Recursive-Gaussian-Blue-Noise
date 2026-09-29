@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name        = "blue_sampler"
-version     = "3.0.4"
-description = "Stealthy point-pattern sampling on the unit torus"
+version     = "3.0.5"
+description = "Hyperuniform point sampling (blue noise) on the unit torus"
 readme      = "README.md"
 license     = { text = "MIT" }
 requires-python = ">=3.9"
@@ -29,6 +29,7 @@ dependencies = [
     "matplotlib",
     "finufft",
     "squarenet",
+    "gridpoints",
 ]
 
 [project.optional-dependencies]

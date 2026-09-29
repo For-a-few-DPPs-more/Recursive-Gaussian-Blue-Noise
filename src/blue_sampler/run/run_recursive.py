@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import jax
 import jax.numpy as jnp
-from squarenet import SquareNet
+import gridpoints
 
 from ..math import (
     integers_in_half_ball,
@@ -61,6 +61,11 @@ def _recursive_pipeline(
 ) -> np.ndarray:
     """Recursive stealthy-sampling pipeline. Spawns child pipelines when N is large."""
     try:
+        import cupy as cp #cupy (on GPU) will be used for gridpoints
+        xp, to_xp, to_numpy = cp, cp.asarray, cp.asnumpy
+    except:
+        xp, to_xp, to_numpy = np, np.asarray, np.asarray
+    try:
         has_target = target is not None
         is_root    = _is_root or (N <= 3_000) or (x is not None)
         brute_thresh = 1000 if D == 2 else 3_000
@@ -70,7 +75,7 @@ def _recursive_pipeline(
         if has_target and D == 2:
             #spatial_radius = 8
             S = 0.5
-        if is_root and (x is None):
+        if is_root:
             N_ITER = 50
 
         ctx = logger.enter_level(N, D, N_ITER)
@@ -127,7 +132,7 @@ def _recursive_pipeline(
                 out, _ = jax.lax.scan(body, jnp.zeros_like(x_flat), (K_w, K_))
                 return out.reshape(*IJK, D)
     
-        sn = SquareNet(gridshape=IJK, max_iter=50, verbose=0)
+        gridshape = IJK
 
         shake_offset = 0.5 if not has_target else 0.0
 
@@ -137,10 +142,13 @@ def _recursive_pipeline(
             flat = np.array(torus_wrap(np.random.permutation(x_val.reshape(-1, D)) - shake_offset))  
             empty_mask = empty_cells(flat)
             flat[empty_mask] = np.random.rand(*flat.shape)[empty_mask]
-            sn.fit(flat, method="ultimate")
-            flat[empty_mask] = np.nan
-            x_new = sn.map(flat)
-            return x_new
+            flat = to_xp(flat)
+            order = gridpoints.argsort(
+                flat, gridshape, verbose = 0, level = 2,
+            )
+            flat[empty_mask] = xp.nan
+            x_new = flat[order].reshape(*IJK, D)
+            return to_numpy(x_new)
 
         def gridify(x_val: jnp.ndarray) -> jnp.ndarray:
             return jax.pure_callback(
