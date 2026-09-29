@@ -65,9 +65,9 @@ x = blue.sample_points(N, D, method="rgbn") #(N, D)
 | Method         | Description                              |
 |----------------|------------------------------------------|
 | `gaussian`     | original Gaussian-Blue-Noise sampler (high quality, slow), A. G. M. Ahmed, J. Ren, and P. Wonka.  |
-| `rgbn`         | Recursive Gaussian-Blue-Noise (speed-up GBN with robust approximations)      |
+| `rgbn`         | Recursive Gaussian-Blue-Noise (speed-up GBN with recursive initialisation)      |
 | `nufft/nufft+` | Non-Uniform FFT (speed-up spectral methods with fast fourier transform)    |
-| `cstit`        | STIT inspired clustering (clusters replace complex polygon geometry)       |
+| `cstit`        | Fair-STIT inspired clustering (clusters replace complex polygon geometry)       |
 | `latjit`       | fast and simple lattice jittering        |
 
 ---
@@ -102,15 +102,20 @@ The recommanded default is:
 > blue_sampler.check_gpu()
 > ```
 
-> **Note on Keops acceleration**: gaussian and nufft (if dimension D >= 4) samplers will get much faster on gpu,
->if pykeops is installed along with all it's dependency (which will be automatically detected). This is optional, and mainly usefull to sample large datasets.
+> **Note on Keops acceleration**: gaussian and nufft (if dimension D >= 4) samplers will get much faster on gpu, if `pykeops` is installed along with all it's dependency (which will be automatically detected). This is optional, and mainly usefull to sample large datasets.
 >See [pykeops](https://www.kernel-operations.io/keops/python/installation.html#requirements) documentation
 
-> **Note on adaptative sampling**: The sampling methods implemented here support adaptive sampling from a target distribution. This feature is still experimental beyond 2d distributions
+> **Note on adaptative sampling**: The sampling methods implemented here support adaptive sampling from a target distribution. The target must be given as an oversampled dataset sampled according to the desired distribution. as an example, sampling blue noise from a normal distribution would be:
+>```python
+> target = np.random.randn(50*N, D) #i.i.d normal distribution with numpy
+>x = blue.sample_points(N=N, D=D, target = target, method = "nufft")
+>```
 
 > **Note on structure factor**: The structure factor (sf) characterizes the density fluctuations of the points in Fourier space and is equivalent to the **power spectrum** (up to normalization). The estimation of sf assumes that the points domain is the unit hypercube and uses the standard `scattering intensity` estimator.
-
-> **Note on cstit**: The conversion from geometric objects (polygons, clusters) to point sets is performed by tessel2points resp. cluster2points using a standard **moment matching** technique developped by L. Lotz and M. A. Klatt (see ref section).
+> To compute and plot a structure factor:
+> ```python
+>blue.plot_structure_factor(points)
+> ```
 
 ---
 
