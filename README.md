@@ -112,7 +112,7 @@ The recommanded default is:
 >points = blue.sample_points(N=N, D=D, targets = targets, method = "nufft")
 >```
 
-> **Note on structure factor**: The structure factor (sf) characterizes the density fluctuations of the points in Fourier space and is equivalent to the **power spectrum** (up to normalization). The estimation of sf assumes that the points domain is the unit hypercube and uses the standard `scattering intensity` estimator.
+> **Note on structure factor**: The structure factor characterizes the density fluctuations of the points in Fourier space and is equivalent to the **power spectrum** (up to normalization). The estimation of structure factor assumes that the points domain is the unit hypercube and uses the standard `scattering intensity` estimator.
 > To compute and plot a structure factor:
 > ```python
 >blue.plot_structure_factor(points)
