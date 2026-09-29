@@ -81,7 +81,7 @@ x = blue.sample_points(N, D, method="rgbn") #(N, D)
 | ≥6D       | Experimental  |
 
 
-All presented samplers, having linear complexity in the number of points, are thus intended to scale up to million points (at least in 2/3D) beyond the minute (GPU) or 20 minutes (CPU).
+All presented samplers, having linear complexity in the number of points, are thus intended to scale up to million points beyond the minute (GPU) or 20 minutes (CPU).
 The recommanded default is: 
  - dimension D = 1/2/3: `nufft`
  - dimension D = 4/5: `rgbn` or `gaussian` (depending on N + gpu availability)
