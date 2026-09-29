@@ -102,7 +102,7 @@ The recommanded default is:
 > blue_sampler.check_gpu()
 > ```
 
-> **Note on Keops acceleration**: gaussian and nufft (if dimension D >= 4) samplers will get much faster on gpu, if `pykeops` is installed along with all it's dependency (which will be automatically detected). This is optional, and mainly usefull to sample large datasets.
+> **Note on Keops acceleration**: gaussian and nufft (if dimension D >= 4) samplers will get much faster on gpu, if `pykeops` is installed on the hardware along with all it's dependency (which will be automatically detected). This is optional, and mainly usefull to sample large datasets on a GPU.
 >See [pykeops](https://www.kernel-operations.io/keops/python/installation.html#requirements) documentation
 
 > **Note on adaptative sampling**: The sampling methods implemented here support adaptive sampling from a target distribution. The target must be given as an oversampled dataset sampled according to the desired distribution. as an example, sampling blue noise from a normal distribution would be:
