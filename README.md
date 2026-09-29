@@ -6,9 +6,9 @@
 
 # blue-sampler / hyperuniform sampler
 
-**Generate large stealthy point patterns** (i.e. blue noise) on the unit torus $[0, 1)^D$. 
+**Generate large hyperuniform point patterns** (i.e. blue noise) on the unit torus $[0, 1)^D$, uniformly or following a given target distribution. 
 
-Stealthy point patterns exhibit vanishing density fluctuations at low frequencies, making them particularly suited for **Monte Carlo** integration, **image stippling**, and any application requiring well-distributed, low-discrepancy points. 
+Hyperuniform point patterns exhibit vanishing density fluctuations at low frequencies, making them particularly suited for **Monte Carlo** integration, **image stippling**, and any application requiring well-distributed, low-discrepancy points. 
 
 ---
 
