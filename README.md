@@ -96,7 +96,7 @@ The recommanded default is:
 > ```bash
 > pip install blue-sampler[gpu]
 > ```
-> If the CUDA 12 installation fails, you may need to install `jax`, `torch`, `cupy`, and `cufinufft` manually. Once installed, you can check that GPU support is correctly configured by running:
+> If the CUDA 12 installation fails, you may need to install `jax`, `cupy`, and `cufinufft` manually. Once installed, you can check that GPU support is correctly configured by running:
 > ```python
 > import blue_sampler
 > blue_sampler.check_gpu()
