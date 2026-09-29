@@ -107,8 +107,9 @@ The recommanded default is:
 
 > **Note on adaptative sampling**: The sampling methods implemented here support adaptive sampling from a target distribution. The target must be given as an oversampled dataset sampled according to the desired distribution. as an example, sampling blue noise from a normal distribution would be:
 >```python
+>import numpy as np
 > target = np.random.randn(50*N, D) #i.i.d normal distribution with numpy
->x = blue.sample_points(N=N, D=D, target = target, method = "nufft")
+>points = blue.sample_points(N=N, D=D, target = target, method = "nufft")
 >```
 
 > **Note on structure factor**: The structure factor (sf) characterizes the density fluctuations of the points in Fourier space and is equivalent to the **power spectrum** (up to normalization). The estimation of sf assumes that the points domain is the unit hypercube and uses the standard `scattering intensity` estimator.
