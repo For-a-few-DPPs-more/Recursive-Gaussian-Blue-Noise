@@ -101,15 +101,6 @@ The recommanded default is:
 > import blue_sampler
 > blue_sampler.check_gpu()
 > ```
-> ```bash
-> pip install blue-sampler[gpu] #also pip install blue-sampler[keops] if needed, see bellow
-> ```
-> If the CUDA 12 installation fails, you may need to install `jax`, `torch`, `cupy`, and `cufinufft` manually. Once installed, you can check that GPU support is correctly configured by running:
-> ```python
-> import blue_sampler
-> blue_sampler.check_gpu()
-> ```
-
 
 > **Note on Keops acceleration**: gaussian and nufft (if dimension D >= 4) samplers will get much faster on gpu,
 >if pykeops is installed along with all it's dependency (which will be automatically detected). This is optional, and mainly usefull to sample large datasets.
