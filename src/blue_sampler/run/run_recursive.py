@@ -68,15 +68,22 @@ def _recursive_pipeline(
     try:
         has_target = target is not None
         is_root    = _is_root or (N <= 3_000) or (x is not None)
-        brute_thresh = 1000 if D == 2 else 3_000
-        brute_ITER = 600 if D == 2 else 60
+        if D <= 2:
+            brute_thresh = 1000
+        elif D == 3:
+            brute_thresh = 2000
+        elif D == 4:
+            brute_thresh = 5000
+        else: 
+            brute_thresh = 10_000
+        brute_ITER = 60
         if x is None:
             x = np.random.rand(N, D)
         if has_target and D == 2:
             #spatial_radius = 8
             S = 0.5
         if is_root:
-            N_ITER = 50
+            N_ITER = 20
 
         ctx = logger.enter_level(N, D, N_ITER)
         Dsimp      = min(D, 3)

@@ -175,13 +175,13 @@ def structure_factor_and_average(points, resolution: int = 20000, min_val: float
     logk = np.log(kgroup)
     logS = np.log(Sgroup)
     logk_uniform = np.linspace(logk[0], logk[-1], 1000)
-    logS_uniform = np.interp(logk_uniform, logk, logS)
+    logS_uniform = np.interp(logk_uniform, logk, np.exp(logS))
     sigma = (logk[-1] - logk[0]) * 0.01
     dx = logk_uniform[1] - logk_uniform[0]
     sigma_pixels = sigma / dx
     logS_smooth_uniform = gaussian_filter1d(logS_uniform, sigma_pixels, truncate=4.0)
     logS_smooth = np.interp(logk, logk_uniform, logS_smooth_uniform)
-    Sgroup = np.exp(logS_smooth)
+    Sgroup = logS_smooth #np.exp(logS_smooth)
     Sraw = Sraw.clip(min=Sgroup.min())
     return kraw, Sraw, kgroup, Sgroup
 

@@ -49,14 +49,14 @@ def _nufft_pipeline_keops(
     x = np.ascontiguousarray(x)
 
     G = int(np.ceil(N ** (1.0 / D)) * kfrac)
-    if G % 2:
-        G += 1
+    #if G % 2:
+    #    G += 1
 
     freqs = (np.fft.fftfreq(G) * G).astype(real_dtype)
     ks_list = np.meshgrid(*([freqs] * D), indexing="ij")
     r2 = sum(k * k for k in ks_list)
 
-    max_freq_sq = freqs.max() ** 2
+    max_freq_sq = ((N ** (1.0 / D) * kfrac/2) ** 2)
     mask = (r2 > 0) & (r2 <= max_freq_sq)
     k_coords = np.ascontiguousarray(
         np.stack([k[mask] for k in ks_list], axis=-1).astype(real_dtype)

@@ -86,7 +86,7 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
 
     r2 = sum(k**2 for k in ks)
     rpow = (r2 + 1e-3) ** (-1.0)
-    mask = (r2 > 0) & (r2 <= freqs.max() ** 2)
+    mask = (r2 > 0) & (r2 <= (N ** (1.0 / D) * kfrac/2) ** 2)
     w = xp.where(mask, rpow, 0.0).astype(real_dtype)
     norm = float(xp.maximum(mask.sum(), 1.0))
     w = w / w.max()
