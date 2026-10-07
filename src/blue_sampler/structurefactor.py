@@ -46,28 +46,25 @@ def structure_factor(
     kmax = 2.0 * kunit
 
     if D <= 3:
-        # FINUFFT is CPU-only → force a NumPy view once, then stay in NumPy
-        pts_np = to_numpy(pts)
-        n_modes = int(np.ceil(kmax)) + 1
-        x = 2.0 * np.pi * pts_np.T          # (D, N)
-        c = np.ones(N, dtype=complex_dtype)
+        n_modes = int(xp.ceil(kmax)) + 1
+        x = 2.0 * xp.pi * pts.T          # (D, N)
+        c = xp.ones(N, dtype=complex_dtype)
+        n = xp.arange(-(n_modes // 2), n_modes - (n_modes // 2))
 
         if D == 1:
-            fk = nufft_lib.nufft1d1(x[0].copy(), c, n_modes, eps=eps, isign=1)
-            n = np.arange(-(n_modes // 2), n_modes - (n_modes // 2))
-            kint = n[:, None]
+            kint = to_numpy(n[:, None])
+            fk = to_numpy(nufft_lib.nufft1d1(x[0].copy(), c, n_modes, eps=eps, isign=1))
         elif D == 2:
             fk = nufft_lib.nufft2d1(
                 x[0].copy(), x[1].copy(), c, (n_modes, n_modes),
                 eps=eps, isign=1
             )
-            n = np.arange(-(n_modes // 2), n_modes - (n_modes // 2))
-            nx, ny = np.meshgrid(n, n, indexing="ij")
-            kint = np.stack([nx.ravel(), ny.ravel()], axis=1)
-            fk = fk.ravel()
+            nx, ny = xp.meshgrid(n, n, indexing="ij")
+            kint = to_numpy(xp.stack([nx.ravel(), ny.ravel()], axis=1))
+            fk = to_numpy(fk.ravel())
         else:  # D == 3
             max_chunk = 400_000
-            fk = np.zeros((n_modes, n_modes, n_modes), dtype=complex_dtype)
+            fk = xp.zeros((n_modes, n_modes, n_modes), dtype=complex_dtype)
             for start in range(0, N, max_chunk):
                 stop = min(start + max_chunk, N)
                 fk += nufft_lib.nufft3d1(
@@ -79,10 +76,9 @@ def structure_factor(
                     eps=eps,
                     isign=1,
                 )
-            n = np.arange(-(n_modes // 2), n_modes - (n_modes // 2))
-            nx, ny, nz = np.meshgrid(n, n, n, indexing="ij")
-            kint = np.stack([nx.ravel(), ny.ravel(), nz.ravel()], axis=1)
-            fk = fk.ravel()
+            nx, ny, nz = xp.meshgrid(n, n, n, indexing="ij")
+            kint = to_numpy(xp.stack([nx.ravel(), ny.ravel(), nz.ravel()], axis=1))
+            fk = to_numpy(fk.ravel())
 
         Sk = np.abs(fk) ** 2 / N
         knorm = np.linalg.norm(kint, axis=1) / kunit
@@ -179,13 +175,13 @@ def structure_factor_and_average(points, resolution: int = 20000, min_val: float
     logk = np.log(kgroup)
     logS = np.log(Sgroup)
     logk_uniform = np.linspace(logk[0], logk[-1], 1000)
-    logS_uniform = np.interp(logk_uniform, logk, logS)
+    logS_uniform = np.interp(logk_uniform, logk, np.exp(logS)) #no more log log, back to exp
     sigma = (logk[-1] - logk[0]) * 0.01
     dx = logk_uniform[1] - logk_uniform[0]
     sigma_pixels = sigma / dx
     logS_smooth_uniform = gaussian_filter1d(logS_uniform, sigma_pixels, truncate=4.0)
     logS_smooth = np.interp(logk, logk_uniform, logS_smooth_uniform)
-    Sgroup = np.exp(logS_smooth)
+    Sgroup = logS_smooth #np.exp(logS_smooth) 
     Sraw = Sraw.clip(min=Sgroup.min())
     return kraw, Sraw, kgroup, Sgroup
 

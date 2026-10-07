@@ -4,32 +4,32 @@ build-backend = "hatchling.build"
 
 [project]
 name        = "blue_sampler"
-version     = "2.1.4"
-description = "Stealthy point-pattern sampling on the unit torus"
+version     = "3.1.0"
+description = "Hyperuniform point sampling (blue noise) on the unit torus"
 readme      = "README.md"
 license     = { text = "MIT" }
 requires-python = ">=3.9"
 
 keywords = [
     "blue noise",
-    "stealthy",
+    "hyperuniformity",
+    "gaussian blue noise",
     "point process",
+    "Monte Carlo",
     "stipling",
     "sampling",
     "structure factor",
-    "GBN",
     "STIT",
-    "Pinwheel",
     "NuFFT",
 ]
 
 dependencies = [
     "numpy",
     "jax",
-    "optax",
     "matplotlib",
     "finufft",
     "squarenet",
+    "gridpoints",
 ]
 
 [project.optional-dependencies]
@@ -37,7 +37,9 @@ gpu = [
     "jax[cuda12]",
     "cupy-cuda12x[ctk]",
     "cufinufft",
-    "torch",
+]
+keops = [
+    "pykeops",
 ]
 
 [project.urls]

@@ -4,11 +4,11 @@
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/For-a-few-DPPs-more/rgbn/blob/main/examples.ipynb)
 
 
-# blue-sampler
+# blue-sampler / hyperuniform sampler
 
-**Generate large stealthy point patterns** (i.e. blue noise) on the unit torus $[0, 1)^D$. 📐
+**Generate large hyperuniform point patterns** (i.e. blue noise) on the unit torus $[0, 1)^D$, uniformly or following a given target distribution. 
 
-Stealthy point patterns exhibit vanishing density fluctuations at low frequencies, making them particularly suited for **Monte Carlo** integration, **image stippling**, and any application requiring well-distributed, low-discrepancy points. 
+Hyperuniform point patterns exhibit vanishing density fluctuations at low frequencies, making them particularly suited for **Monte Carlo** integration, **image stippling**, and any application requiring well-distributed, low-discrepancy points. 
 
 ---
 
@@ -40,13 +40,13 @@ x = blue.im2points("plots/zebra.jpg")
 
 ## 🖼️ Examples 
 
-Uniform sampling, Gaussian Blue Noise (3k points)
+Uniform sampling (3k points)
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/For-a-few-DPPs-more/rgbn/main/plots/huniformpoints.png" width="45%" alt="Example">
 </p>
 
-Image stippling with points (20k points)
+Image stippling (20k points)
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/For-a-few-DPPs-more/rgbn/main/plots/montage.png" width="95%" alt="Example 1">
@@ -65,15 +65,111 @@ x = blue.sample_points(N, D, method="rgbn") #(N, D)
 | Method         | Description                              |
 |----------------|------------------------------------------|
 | `gaussian`     | original Gaussian-Blue-Noise sampler (high quality, slow), A. G. M. Ahmed, J. Ren, and P. Wonka.  |
-| `rgbn`         | Recursive Gaussian-Blue-Noise (speed-up GBN with robust approximations)      |
+| `rgbn`         | Recursive Gaussian-Blue-Noise (speed-up GBN with recursive initialisation)      |
 | `nufft/nufft+` | Non-Uniform FFT (speed-up spectral methods with fast fourier transform)    |
-| `cstit`        | STIT inspired clustering (clusters replace complex polygon geometry)       |
+| `cstit`        | Fair-STIT inspired clustering (clusters replace complex polygon geometry)       |
 | `latjit`       | fast and simple lattice jittering        |
+
 ---
 
-All presented samplers, having linear complexity in the number of points, are thus intended to scale up to million points (at least in 2/3D) beyond the minute (GPU) or 20 minutes (CPU).
-Were their will be a difference will be in supported dimensions (or cardinality constrains on N), spectral quality, speed,
-gpu support, target support. Depending on one's specific task, it is recommanded to give them all a quick try, starting with rgbn and nufft. QUality can be checked with the structure factor and by ploting the points if D <= 3.
+## Supported Dimensions
+
+| Dimension | Status       |
+|-----------|--------------|
+| 2–3D      | Fast |
+| 4–5D      | Supported    |
+| ≥6D       | Experimental  |
+
+
+All presented samplers, having linear complexity in the number of points, are thus intended to scale up to million points beyond the minute (GPU) or 20 minutes (CPU).
+The recommanded default is: 
+ - dimension D = 1/2/3: `nufft`
+ - dimension D = 4/5: `rgbn` or `gaussian` (depending on N + gpu availability)
+ - dimension 6 or more: `gaussian`
+
+ If sampling runtime is realy a problem, then  `cstit ` is recommended (much faster, but not so good blue noise)
+. QUality can be checked with the `structure factor`.
+
+
+> **Note on GPU support**: Most methods can run on CPU only, but they can benefit from GPU acceleration.
+> To install the optional GPU dependencies for a CUDA 12 environment:
+> ```bash
+> pip install blue-sampler[gpu]
+> ```
+> If the CUDA 12 installation fails, you may need to install `jax`, `cupy`, and `cufinufft` manually. Once installed, you can check that GPU support is correctly configured by running:
+> ```python
+> import blue_sampler
+> blue_sampler.check_gpu()
+> ```
+
+> **Note on Keops acceleration**: gaussian and nufft (if dimension D >= 4) samplers will get much faster on gpu, if `pykeops` is installed on the hardware along with all it's dependency (which will be automatically detected). This is optional, and mainly usefull to sample large datasets on a GPU.
+>See [pykeops](https://www.kernel-operations.io/keops/python/installation.html#requirements) documentation
+
+> **Note on adaptative sampling**: The sampling methods implemented here support adaptive sampling from a target distribution. The target must be given as an oversampled dataset sampled according to the desired distribution. as an example, sampling blue noise from a normal distribution would be:
+>```python
+>import numpy as np
+>targets = np.random.randn(50*N, D) #i.i.d normal distribution with numpy
+>points = blue.sample_points(N=N, D=D, targets = targets, method = "nufft")
+>```
+
+> **Note on structure factor**: The structure factor characterizes the density fluctuations of the points in Fourier space and is equivalent to the **power spectrum** (up to normalization). The estimation of structure factor assumes that the points domain is the unit hypercube and uses the standard `scattering intensity` estimator.
+> To compute and plot a structure factor:
+> ```python
+>blue.plot_structure_factor(points)
+> ```
+
+---
+
+## Documentation & Links 🔗
+
+- 📖 **Documentation**: [https://blue-sampler.readthedocs.io](https://blue-sampler.readthedocs.io)
+- 📦 **PyPI**: [https://pypi.org/project/blue-sampler](https://pypi.org/project/blue-sampler/)
+- 💻 **GitHub**: [https://github.com/For-a-few-DPPs-more/rgbn](https://github.com/For-a-few-DPPs-more/rgbn)
+
+---
+
+##  References
+
+The algorithms and mathematical tools implemented in **blue-sampler** are based or inspired from the following works.
+
+- **Gaussian Blue Noise (repulsive interaction kernel)**  
+  *A. G. M. Ahmed, J. Ren, and P. Wonka.*  
+  **Gaussian Blue Noise.**  
+  *ACM Transactions on Graphics (SIGGRAPH Asia), 41(6), 2022.*  
+  DOI: 10.1145/3550454.3555519
+
+- [FReSCo](https://github.com/martiniani-lab/FReSCo)
+  *A. Shih, M. Casiulis, and S. Martiniani.*  
+  **Fast Generation of Spectrally-Shaped Disorder.**  
+  *Physical Review E*, 110(3):034122, 2024.  
+  DOI: 10.1103/PhysRevE.110.034122
+
+- **STIT tessellations and moment matching**  
+  *L. Lotz and M. A. Klatt.*  
+  **Persistence of asymptotic variance under transport: from hyperfluctuation to stealthy hyperuniformity.**  
+  *arXiv:2605.22803*, 2026.
+
+- **Aperiodic tiling for hyuperuniformity (here pinwheel)**  
+  *A. Gabrielli, B. Jancovici, M. Joyce, J. L. Lebowitz, L. Pietronero, and F. Sylos Labini.*  
+  **Generation of Primordial Cosmological Perturbations from Statistical Mechanical Models.**  
+  *Physical Review D*, **67**(4):043506, 2003.  
+
+- **SquareNet** [(v1.3.11). 2026](https://squarenet.readthedocs.io/en/latest/).  
+  Grid data structure for point clouds, codeveloped with RGBN \
+  for efficient neighbor query and fourier trnasform in Python.
+
+- **Sobol sequences**  
+  Wrapped from `scipy.stats.qmc.Sobol` (SciPy).
+
+The package strongly benefits from following libraries:
+
+- **Nufft**: The non uniform fast fourier transform (nufft) is performed using the [finufft](https://github.com/flatironinstitute/finufft) / [cufinufft](https://github.com/flatironinstitute/cufinufft)  library
+  [FIN] A parallel non-uniform fast Fourier transform library based on an “exponential of semicircle” \
+   kernel. A. H. Barnett, J. F. Magland, and L. af Klinteberg. SIAM J. Sci. Comput. 41(5), C479-C504 (2019).
+
+- **KEOPS** B. Charlier, J. Feydy, J. A. Glaunès, F.-D. Collin, and G. Durif. “Kernel Operations on the GPU, with Autodiff, without Memory Overflows.” *Journal of Machine Learning Research*, 22(74):1–6, 2021. See [keops](https://www.kernel-operations.io/keops/index.html).
+
+---
 
 ## Alternative Samplers
 
@@ -114,86 +210,14 @@ x0 = blue.tessel2points(pw0) #(m, D=2)
 #in a fractal way
 x4 = blue.pinwheel_transform(x0, depth = 4) #(4*5**depth, m, D=2)
 ```
-> **Note on GPU support:** Most methods can run on CPU only, but they can benefit from GPU acceleration.
-> To install the optional GPU dependencies for a CUDA 12 environment:
-> ```bash
-> pip install blue-sampler[gpu]
-> ```
-> If the CUDA 12 installation fails, you may need to install `jax`, `cupy`, and `cufinufft` manually. Once installed, you can check that GPU support is correctly configured by running:
-> ```python
-> import blue_sampler
-> blue_sampler.check_gpu()
-> ```
 
-> **Note on adaptative sampling**: The sampling methods implemented here support adaptive sampling from a target distribution. This feature is still experimental beyond 2d distributions
- 
-> **Note on structure factor**: The estimation of sf assumes that the points domain is the unit hypercube and uses the standard `scattering intensity`.
-
-> **Note on tessel2points method**: The conversion from geometric objects (polygons or clusters) to point sets is performed using a standard **moment matching** technique. cluster2points(x, p = 3) and tessel2points(x, p = 3) will sample m points per batch that mimic the statistical {0, 1, ... p-1} moments of the batch.
----
-
-## Supported Dimensions
-
-| Dimension | Status       |
-|-----------|--------------|
-| 2–3D      | Fast ⚡       |
-| 4–5D      | Supported    |
-| ≥6D       | Experimental 🧪 |
-
----
-
-## Documentation & Links 🔗
-
-- 📖 **Documentation**: [https://blue-sampler.readthedocs.io](https://blue-sampler.readthedocs.io)
-- 📦 **PyPI**: [https://pypi.org/project/blue-sampler](https://pypi.org/project/blue-sampler/)
-- 🌐 **Project website**: [https://for-a-few-dpps-more.github.io/rgbn/](https://for-a-few-dpps-more.github.io/rgbn/)
-- 💻 **GitHub**: [https://github.com/For-a-few-DPPs-more/rgbn](https://github.com/For-a-few-DPPs-more/rgbn)
-
----
-
-## 📚 References
-
-The algorithms and mathematical tools implemented in **blue-sampler** are based or inspired from the following works.
-
-- **Gaussian Blue Noise (repulsive interaction kernel)**  
-  *A. G. M. Ahmed, J. Ren, and P. Wonka.*  
-  **Gaussian Blue Noise.**  
-  *ACM Transactions on Graphics (SIGGRAPH Asia), 41(6), 2022.*  
-  DOI: 10.1145/3550454.3555519
-
-- **FReSCo**  
-  *A. Shih, M. Casiulis, and S. Martiniani.*  
-  **Fast Generation of Spectrally-Shaped Disorder.**  
-  *Physical Review E*, 110(3):034122, 2024.  
-  DOI: 10.1103/PhysRevE.110.034122
-
-- **STIT tessellations and moment matching**  
-  *L. Lotz and M. A. Klatt.*  
-  **Persistence of asymptotic variance under transport: from hyperfluctuation to stealthy hyperuniformity.**  
-  *arXiv:2605.22803*, 2026.
-
-- **Aperiodic tiling for hyuperuniformity (here pinwheel)**  
-  *A. Gabrielli, B. Jancovici, M. Joyce, J. L. Lebowitz, L. Pietronero, and F. Sylos Labini.*  
-  **Generation of Primordial Cosmological Perturbations from Statistical Mechanical Models.**  
-  *Physical Review D*, **67**(4):043506, 2003.  
-
-- **SquareNet** [(v1.3.11). 2026](https://squarenet.readthedocs.io/en/latest/).  
-  Grid data structure for point clouds, codeveloped with RGBN \
-  for efficient neighbor query and fourier trnasform in Python.
-
-- **Sobol sequences**  
-  Wrapped from `scipy.stats.qmc.Sobol` (SciPy).
-
-- **Nufft**: The non uniform fast fourier transform (nufft) is performed using the finufft library
-  [FIN] A parallel non-uniform fast Fourier transform library based on an “exponential of semicircle” \
-   kernel. A. H. Barnett, J. F. Magland, and L. af Klinteberg. SIAM J. Sci. Comput. 41(5), C479-C504 (2019).
 ---
 
 # Positioning and scope
 
 One can find extensive Blue-noise and hyperuniform sampling methods in the literature, all involving different trade-offs between spectral quality, computational cost, dimensionality, hardware requirements, implementation complexity, and support for adaptive sampling. To briefly cite some of them: **Perturbed lattices** are simple and fast; **Poisson-disk** is a mature and popular tool; **Void-and-Cluster masks** offer instant execution but are restricted to regular grids; **Relaxation methods** (such as Lloyd or CCVT) are classic but slow to converge and prone to structural artifacts; **Optimal Transport** (BNOT) provides natural adaptive sampling but is computationally heavy; **Gaussian blue noise** (GBN) achieves ultra-high spatial quality but has quadratic complexity; and **Fast reciprocal space Correlator** (FReSCo) combines ultra-high quality with near-linear complexity, though it requires installing heavy external dependencies or familiarity with docker containers.
 
-blue-sampler is not intended as a universal replacement for these methods. It is a lightweight Python framework for experiments on blue noise and hyperuniformity, targeting simple installation (native Python code) and device flexibility (CPU/GPU), high spectral quality (achieving the commonly accepted "stealthy" criterions $S(k) \lesssim 10^{-3} - 10^{-4}$), adaptive sampling, and support for 3D and higher dimensions.
+blue-sampler is not intended as a universal replacement for these methods. It is a lightweight Python framework for experiments on blue noise and hyperuniformity, targeting simple installation (native Python code, jax powered) and device flexibility (CPU/GPU), high spectral quality (achieving the commonly accepted "stealthy" criterions $S(k) \lesssim 10^{-3} - 10^{-4}$), adaptive sampling, and support for 3D and higher dimensions.
 
 ---
 

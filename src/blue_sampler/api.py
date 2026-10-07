@@ -26,8 +26,10 @@ from numpy.typing import NDArray
 from typing import Literal
 
 from .run.run_bruteforce import _bruteforce_pipeline
-from .run.run_recursive import _PRESETS, _recursive_pipeline
+from .run.run_recursive import _recursive_pipeline
+from .run.run_recursive_verlet import _recursive_pipeline_verlet
 from .run.run_nufft import _nufft_pipeline
+from .run.run_nufft_jax import _nufft_pipeline_jax
 from .warm_start import _sobol_warmstart, _goodlattice_warmstart, _x_warmstart
 from .progress import ProgressLogger
 
@@ -41,6 +43,9 @@ from .pinwheels import _BASE, _subdivide, _full_transform
 from .momentum.momentum import _from_geometry
 
 from .viz import plot, plot_polygons
+
+
+from .run.run_bruteforce_keops import KEOPS_AVAILABLE
 
 BlueNoiseMethod = Literal["rgbn", "nufft", "nufft+", "gaussian", "latjit", "cstit"]
 WarmstartMethod = Literal["Goodlattice", "Sobol", "Pinwheel"]
@@ -139,8 +144,8 @@ def sample_points(
         - ``"rgbn"``     — Recursive Gaussian Blue Noise. Fast spatial
           optimisation with a truncated neighbourhood.
         - ``"nufft"``    — Spectral optimisation using a Non-Uniform Fast
-          Fourier Transform.
-        - ``"nufft+"``    — Same, but with criticall Chi parametter = 0.4 (slower, better).
+          Fourier Transform, with criticall Chi = 0.35.
+        - ``"nufft+"``    — Same, but with criticall Chi parametter = 0.43 (slower, better).
         - ``"cstit"``    — Optimisation based on a stable-partition
           criterion, inspired by the fair STIT method.
         - ``"latjit"``   — Randomly jittered lattice. Fast and simple.
@@ -211,22 +216,7 @@ def sample_points(
         n_iter *= 2
 
     if method == "latjit":
-        prefixD = 1
-        suffix = 1
-        for s in range(1, 11):
-            prefixD = int((N / s) ** (1 / D) + 1e-6) ** D
-            if N == prefixD * s:
-                suffix = s
-                break
-        if N != prefixD * s:
-            raise ValueError(
-                f"for latjit, (N={N}) must be a power of 2 or more generally of the form"
-                f"prefix**(D ={D}) * suffix with suffix in [1, 10]"
-                "This is to build suffix different lattices with basis prefix"
-            )
-        return np.concatenate(
-            [jitter(prefixD, D, verbose) for _ in range(suffix)]
-        )
+        return jitter(N, D, verbose)
 
     if method == "cstit":
         prefix2 = int(np.log2(N) + 1e-6)
@@ -244,12 +234,21 @@ def sample_points(
         x = None
 
     if method in ["nufft", "nufft+"]:
-        assert D <= 3, (
-                f"nufft method require points dimension D <= 3, got D = {D} "
-        )
-        Chi = 0.3 if method == "nufft" else 0.4
-        n_iter = 20*n_iter if method == "nufft" else 100*n_iter
-        return _nufft_pipeline(N, D, lr=lr, warmstart=x, target = targets,
+        nufft_pipeline = _nufft_pipeline if D <= 3 else _nufft_pipeline_jax
+        if (N >= 5_000) and KEOPS_AVAILABLE and D >= 4:
+            try:
+                from .run.run_nufft_keops import _nufft_pipeline_keops
+                nufft_pipeline = _nufft_pipeline_keops
+            except:
+                if verbose >= 1:
+                    print("keops unavailable. default to slow kernel")
+
+        Chi = 0.35 if method == "nufft" else 0.43
+        if D <= 3:
+            n_iter = 20*n_iter if method == "nufft" else 80*n_iter
+        else:
+            n_iter = 20*int(n_iter/2)  #high dimensions converge faster
+        return nufft_pipeline(N, D, lr=lr, warmstart=x, target = targets,
                                verbose=verbose, n_iter= n_iter, Chi = Chi)
 
     if verbose >= 1:
@@ -258,39 +257,35 @@ def sample_points(
     if n_iter == 0:
         return x
 
-    bruteforce = method == "gaussian" or (N <= 1_000 if D  == 2 else N <= 3_000)
+    bruteforce = method == "gaussian" or (N <= 1_000)
 
     logger = ProgressLogger(D, verbose)
     if bruteforce:
-        if D == 2:
-            n_iter *= max(10, int(N/24))
-        if D == 3:
-            n_iter *= max(10, int(N/600))
-        if D >= 4:
-            n_iter *= max(10, int(N/2000))
+        if (targets is None) and (N >= 5_000) and KEOPS_AVAILABLE:
+            try:
+                from .run.run_bruteforce_keops import make_pipeline
+                return make_pipeline(N, D, 10*n_iter, lr, verbose)(x)
+            except:
+                if verbose >= 1:
+                    print("keops unavailable. default to slow kernel")
         ctx = logger.enter_level(N, D, 0)
         ctx.start()
         blue = _bruteforce_pipeline(
-            N, D, n_iter, ctx=ctx,
+            N, D, n_iter*10, ctx=ctx,
             lr=lr,
             target=targets,
         )
         sampled_points = np.array(blue(x))
         logger.exit_level()
     elif method == "rgbn":
-        preset = _PRESETS[min(D, 5)]
-        sampled_points = _recursive_pipeline(
+        recursive_pipeline = _recursive_pipeline if D <= 4 else _recursive_pipeline_verlet
+        if verbose >= 1:
+            print(f"neighbor graph: {"Cubenet as D <= 4" if D <= 4 else "Verlet as D > 4"}")
+        sampled_points = recursive_pipeline(
             N=N,
             D=D,
             N_ITER=n_iter,
-            logger=logger,
-            S=preset["S"],
-            expension_factor=preset["expension_factor"],
-            LR_spatial=lr * preset["LR_spatial"],
-            LR_spectral=lr * preset["LR_spectral"],
-            spatial_radius=preset["spatial_radius"],
-            spectral_radius=preset["spectral_radius"],
-            N_PER_STEP=10,
+            verbose = verbose,
             x=x,
             target=targets,
         )
@@ -746,22 +741,7 @@ def warmstart_points(
 
 def jitter(N, D, verbose):
     """perturbed lattice based, latjit blue noise method"""
-    n = int(N ** (1 / D) + 1e-6)
-    if verbose >= 1 and (n**D != N):
-        warnings.warn(
-            f"user-given number of points N = {N} is not a power of dimension D = {D}; "
-            f"N will be rounded to {n}^{D} = {n**D} to build the lattice",
-            UserWarning,
-            stacklevel=2,
-        )
-    axes = [
-        (np.linspace(0, 1, n, endpoint = False) + 0.5) 
-        for _ in range(D)
-    ]
-    lattice = np.stack(
-        np.meshgrid(*axes, indexing="ij"),
-        axis=-1
-    ).reshape(-1, D) + np.random.rand(1, D)
-    u = (np.random.rand(len(lattice), D) - 0.5)/n
-    x = (lattice + u) % 1.0
-    return x
+    lattice = _goodlattice_warmstart(N, D) #perfect deterministic cristal (lattice)
+    lattice = lattice + np.random.rand(1, D) #global translation
+    lattice = lattice + (np.random.rand(N, D) - 0.5)/(N**(1/D)) #jittering
+    return lattice % 1.0 #periodisation

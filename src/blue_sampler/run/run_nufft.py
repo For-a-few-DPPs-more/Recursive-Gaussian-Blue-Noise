@@ -2,6 +2,8 @@ import time
 import numpy as np
 from ..gpu_setup import set_config
 
+from math import gamma, pi
+
 
 def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
                     n_iter=120, precision="float32", device="auto", seed=None, verbose=1):
@@ -61,10 +63,8 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
 
     eps = 1e-4 if precision == "float32" else 1e-8
     # ---------- geometry ----------
-    if D == 2:
-        kfrac = float(np.sqrt(2 / np.pi) * 4 * Chi)
-    elif D == 3:
-        kfrac = float((2 / ((4 / 3) * np.pi)) ** (1 / 3) * 4 * Chi)
+    ball_ratio = (pi ** (D/2) / gamma(D / 2 + 1)) / (2**D)
+    kfrac = (2 * Chi * D / ball_ratio) ** (1.0 / D)
 
     if warmstart is not None:
         x = xp.asarray(warmstart, dtype=real_dtype).reshape(N, D)
@@ -86,7 +86,7 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
 
     r2 = sum(k**2 for k in ks)
     rpow = (r2 + 1e-3) ** (-1.0)
-    mask = (r2 > 0) & (r2 <= G ** 2)
+    mask = (r2 > 0) & (r2 <= (N ** (1.0 / D) * kfrac/2) ** 2)
     w = xp.where(mask, rpow, 0.0).astype(real_dtype)
     norm = float(xp.maximum(mask.sum(), 1.0))
     w = w / w.max()
