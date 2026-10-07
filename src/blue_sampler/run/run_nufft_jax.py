@@ -12,6 +12,44 @@ import jax.numpy as jnp
 import numpy as np
 from jax import jit, lax, vmap
 
+def memory_friendly_lattice_ball(R, D, dtype=np.float32):
+    """
+    Integer lattice points in ||k||_2 <= R.
+
+    Recursive cylinder construction:
+        B_D(R) = union_{k in B_{D-1}(R)}
+                 { (k, z) : |z| <= sqrt(R² - ||k||²) }
+
+    Never constructs a D-dimensional dense meshgrid.
+    """
+    if D == 1:
+        K = int(np.floor(R))
+        return np.arange(-K, K + 1, dtype=dtype)[:, None]
+
+    # Sparse ball in D-1
+    prev = memory_friendly_lattice_ball(R, D - 1, dtype=dtype)
+
+    r2 = np.sum(prev.astype(np.float64) ** 2, axis=1)
+    zmax = np.floor(np.sqrt(np.maximum(0.0, R * R - r2))).astype(np.int64)
+
+    # Number of z values for each cylinder
+    counts = 2 * zmax + 1
+
+    # Repeat each (D-1)-point according to its cylinder length
+    base = np.repeat(prev, counts, axis=0)
+
+    # Build all z coordinates without a D-dimensional meshgrid
+    starts = np.cumsum(np.r_[0, counts[:-1]])
+    z = np.concatenate([
+        np.arange(-m, m + 1, dtype=dtype)
+        for m in zmax
+    ])
+
+    out = np.empty((len(z), D), dtype=dtype)
+    out[:, :-1] = base
+    out[:, -1] = z
+
+    return out
 
 def _nufft_pipeline_jax(
     N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
@@ -39,15 +77,32 @@ def _nufft_pipeline_jax(
     #if G % 2:
     #    G += 1
 
-    freqs = jnp.fft.fftfreq(G).astype(real_dtype) * G
-    ks_list = jnp.meshgrid(*([freqs] * D), indexing="ij")
-    r2 = sum(k * k for k in ks_list)
+    max_freq_sq = ((N ** (1.0 / D) * kfrac / 2) ** 2)
+    k_coords_np = memory_friendly_lattice_ball(
+        np.sqrt(max_freq_sq),
+        D,
+        dtype=np.float32 if precision == "float32" else np.float64,
+    )
 
-    max_freq_sq = ((N ** (1.0 / D) * kfrac/2) ** 2)
-    mask = (r2 > 0) & (r2 <= max_freq_sq)
-    k_coords = jnp.stack([k[mask] for k in ks_list], axis=-1)
+    # Match jnp.fft.fftfreq(G) exactly:
+    # for even G, +G/2 is not present in fftfreq.
+    if G % 2 == 0:
+        k_coords_np = k_coords_np[
+            np.any(k_coords_np != (G // 2), axis=1)
+        ]
 
-    rpow = (r2[mask] + 1e-3) ** -1.0
+    r2_np = np.sum(k_coords_np.astype(np.float64) ** 2, axis=1)
+
+    mask_np = (r2_np > 0) & (r2_np <= max_freq_sq)
+
+    k_coords = jnp.asarray(
+        np.ascontiguousarray(k_coords_np[mask_np]),
+        dtype=real_dtype,
+    )
+
+    r2 = jnp.asarray(r2_np[mask_np], dtype=real_dtype)
+
+    rpow = (r2 + 1e-3) ** -1.0
     w = rpow / rpow.max()
 
     M = k_coords.shape[0]
