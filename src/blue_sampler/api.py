@@ -26,7 +26,8 @@ from numpy.typing import NDArray
 from typing import Literal
 
 from .run.run_bruteforce import _bruteforce_pipeline
-from .run.run_recursive import _PRESETS, _recursive_pipeline
+from .run.run_recursive import _recursive_pipeline
+from .run.run_recursive_verlet import _recursive_pipeline_verlet
 from .run.run_nufft import _nufft_pipeline
 from .run.run_nufft_jax import _nufft_pipeline_jax
 from .warm_start import _sobol_warmstart, _goodlattice_warmstart, _x_warmstart
@@ -256,7 +257,7 @@ def sample_points(
     if n_iter == 0:
         return x
 
-    bruteforce = method == "gaussian" or (N <= 1_000 if D  == 2 else N <= 3_000)
+    bruteforce = method == "gaussian" or (N <= 1_000)
 
     logger = ProgressLogger(D, verbose)
     if bruteforce:
@@ -277,19 +278,14 @@ def sample_points(
         sampled_points = np.array(blue(x))
         logger.exit_level()
     elif method == "rgbn":
-        preset = _PRESETS[min(D, 5)]
-        sampled_points = _recursive_pipeline(
+        recursive_pipeline = _recursive_pipeline if D <= 4 else _recursive_pipeline_verlet
+        if verbose >= 1:
+            print(f"neighbor graph: {"Cubenet as D <= 4" if D <= 4 else "Verlet as D > 4"}")
+        sampled_points = recursive_pipeline(
             N=N,
             D=D,
             N_ITER=n_iter,
-            logger=logger,
-            S=preset["S"],
-            expension_factor=preset["expension_factor"],
-            LR_spatial=lr * preset["LR_spatial"],
-            LR_spectral=lr * preset["LR_spectral"],
-            spatial_radius=preset["spatial_radius"],
-            spectral_radius=preset["spectral_radius"],
-            N_PER_STEP=10,
+            verbose = verbose,
             x=x,
             target=targets,
         )
