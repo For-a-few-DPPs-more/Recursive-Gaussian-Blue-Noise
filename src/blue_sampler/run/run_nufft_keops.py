@@ -22,6 +22,45 @@ try:
 except Exception:
     KEOPS_AVAILABLE = False
 
+def memory_friendly_lattice_ball(R, D, dtype=np.float32):
+    """
+    Integer lattice points in ||k||_2 <= R.
+
+    Recursive cylinder construction:
+        B_D(R) = union_{k in B_{D-1}(R)}
+                 { (k, z) : |z| <= sqrt(R² - ||k||²) }
+
+    Never constructs a D-dimensional dense meshgrid.
+    """
+    if D == 1:
+        K = int(np.floor(R))
+        return np.arange(-K, K + 1, dtype=dtype)[:, None]
+
+    # Sparse ball in D-1
+    prev = memory_friendly_lattice_ball(R, D - 1, dtype=dtype)
+
+    r2 = np.sum(prev.astype(np.float64) ** 2, axis=1)
+    zmax = np.floor(np.sqrt(np.maximum(0.0, R * R - r2))).astype(np.int64)
+
+    # Number of z values for each cylinder
+    counts = 2 * zmax + 1
+
+    # Repeat each (D-1)-point according to its cylinder length
+    base = np.repeat(prev, counts, axis=0)
+
+    # Build all z coordinates without a D-dimensional meshgrid
+    starts = np.cumsum(np.r_[0, counts[:-1]])
+    z = np.concatenate([
+        np.arange(-m, m + 1, dtype=dtype)
+        for m in zmax
+    ])
+
+    out = np.empty((len(z), D), dtype=dtype)
+    out[:, :-1] = base
+    out[:, -1] = z
+
+    return out
+
 
 def _nufft_pipeline_keops(
     N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
@@ -52,14 +91,24 @@ def _nufft_pipeline_keops(
     #if G % 2:
     #    G += 1
 
-    freqs = (np.fft.fftfreq(G) * G).astype(real_dtype)
-    ks_list = np.meshgrid(*([freqs] * D), indexing="ij")
-    r2 = sum(k * k for k in ks_list)
-
     max_freq_sq = ((N ** (1.0 / D) * kfrac/2) ** 2)
+
+    k_coords = memory_friendly_lattice_ball(
+        np.sqrt(max_freq_sq), D, dtype=real_dtype
+    )
+
+    # Match np.fft.fftfreq(G) exactly:
+    # for even G, +G/2 does not exist in fftfreq.
+    if G % 2 == 0:
+        k_coords = k_coords[
+            np.any(k_coords != (G // 2), axis=1)
+        ]
+
+    r2 = np.sum(k_coords.astype(np.float64) ** 2, axis=1)
+
     mask = (r2 > 0) & (r2 <= max_freq_sq)
     k_coords = np.ascontiguousarray(
-        np.stack([k[mask] for k in ks_list], axis=-1).astype(real_dtype)
+        k_coords[mask].astype(real_dtype)
     )
 
     rpow = (r2[mask] + 1e-3) ** -1.0
