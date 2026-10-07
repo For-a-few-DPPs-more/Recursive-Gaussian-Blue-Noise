@@ -55,4 +55,4 @@ __all__ = [
     "check_gpu",
 ]
 
-__version__ = "3.0.5"
+__version__ = "3.1.0"
