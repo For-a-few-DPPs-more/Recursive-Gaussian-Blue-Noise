@@ -1,12 +1,12 @@
 import time
 import numpy as np
 from ..gpu_setup import set_config
-
-from math import gamma, pi
+from .run_nufft_helpers import get_wave_vectors
 
 
 def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
-                    n_iter=120, precision="float32", device="auto", seed=None, verbose=1):
+                    n_iter=120, precision="float32", device="auto", seed=None, 
+                    verbose = 1):
     """
     NUFFT-based optimization to generate low-discrepancy points in [0,1)^D
     by minimizing a Fourier energy that penalizes low-frequency clustering.
@@ -22,23 +22,25 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
     warmstart : array-like (N, D) or None, default=None
         Starting configuration. If None, points are drawn uniformly (seeded by `seed`).
     Chi : float, default=0.4
-        Frequency cutoff: control the ratio of freedom degrees of the system we are optimising.
-        The number of degrees of freedom is 2* Chi.
+        Fraction of degrees of freedom constrained. The optimised wave vectors are
+        EXACTLY M = round(Chi * D * N) independent modes (one per ±k pair), i.e. the
+        M smallest |k|^2 of Z^D (ties in the last shell broken randomly).
         Thus:
-            Chi <= 0.3 -> target only low frequencies, make the pipeline easyer and faster
-            CHi = 0.4 -> balanced, default setting
-            Chi >= 0.5 -> target fluctuations at the point level, system start cristalising
+            Chi <= 0.3 -> target only low frequencies, make the pipeline easier and faster
+            Chi = 0.4 -> balanced, default setting
+            Chi >= 0.5 -> target fluctuations at the point level, system starts crystallising
     target: np.ndarray, optional
         An other point cloud representing a target density. Default is uniform density.
         The bigger target the better, otherwise overfitting should be expected
     n_iter : int, default=120
         Maximum gradient-descent iterations.
     precision : {"float32", "float64"}, default="float32"
-        Float64 will be slower, but allow to reach scattering intensity bellow 10^-20.
+        Float64 will be slower, but allow to reach scattering intensity below 10^-20.
     device : str, default="auto"
         Compute device ("cpu", "cuda", or "auto").
     seed : int or None, default=None
-        RNG seed used only when `warmstart` is None.
+        RNG seed (initial points when `warmstart` is None, and tie-breaking in the
+        last shell of wave vectors).
     verbose : int, default=1
         If >0, prints progress.
 
@@ -62,36 +64,44 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
     nufft_lib = cfg.nufft_lib
 
     eps = 1e-4 if precision == "float32" else 1e-8
-    # ---------- geometry ----------
-    ball_ratio = (pi ** (D/2) / gamma(D / 2 + 1)) / (2**D)
-    kfrac = (2 * Chi * D / ball_ratio) ** (1.0 / D)
+
+    rng = np.random.default_rng(seed)
 
     if warmstart is not None:
         x = xp.asarray(warmstart, dtype=real_dtype).reshape(N, D)
     else:
-        rng = np.random.default_rng(seed)
         x = xp.asarray(rng.uniform(size=(N, D)), dtype=real_dtype)
 
-    G = int(np.ceil(N ** (1.0 / D)) * kfrac)
-    if G % 2:
-        G += 1
+    # ---------- modes: EXACTLY round(Chi*D*N) ±k pairs, half-space ----------
+    wv = get_wave_vectors(N, D, Chi, rng)
+    M, chi_eff = wv.M, wv.chi_eff
+
+    # Smallest even grid holding every selected mode in FFT order:
+    # for even G the frequencies are -G/2 .. G/2-1, so +-K_max fit iff G/2 > K_max.
+    K_max = int(np.abs(wv.k).max())
+    G = 2 * (K_max + 1)
     n_modes = (G,) * D
 
-    # frequencies (FFT order)
-    freqs = xp.fft.fftfreq(G).astype(real_dtype) * G
+    # Integer frequencies in FFT order (exact, no fftfreq * G rounding)
+    freqs_np = np.concatenate([np.arange(0, G // 2), np.arange(-(G // 2), 0)])
+    freqs = xp.asarray(freqs_np, dtype=real_dtype)
     if D == 1:
         ks = (freqs,)
     else:
         ks = xp.meshgrid(*[freqs] * D, indexing="ij")
 
-    r2 = sum(k**2 for k in ks)
-    rpow = (r2 + 1e-3) ** (-1.0)
-    mask = (r2 > 0) & (r2 <= (N ** (1.0 / D) * kfrac/2) ** 2)
-    w = xp.where(mask, rpow, 0.0).astype(real_dtype)
-    norm = float(xp.maximum(mask.sum(), 1.0))
-    w = w / w.max()
+    # Weight grid: nonzero ONLY on the M selected half-space modes.
+    # (k mod G) is the FFT-order index of frequency k.
+    w_np = np.zeros(n_modes, dtype=np.float64)
+    w_np[tuple(wv.k[:, d].astype(np.int64) % G for d in range(D))] = wv.w
+    w = xp.asarray(w_np, dtype=real_dtype)
 
-    # ---------- plans (réutilisables) ----------
+    # Mean over modes. fk(-k) = conj(fk(k)) => the half-space gives the same
+    # loss as the full space, and the same gradient up to a factor 2
+    # (cancelled by the RMS normalisation below).
+    norm = float(M)
+
+    # ---------- plans (reusable) ----------
     plan_kwargs = dict(
         n_trans=1,
         eps=eps,
@@ -106,7 +116,7 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
 
     # ---------- target Fourier (computed once) ----------
     if target is not None:
-        if isinstance(target, str): #path to an image
+        if isinstance(target, str):  # path to an image
             target = im2spectrum(target, shape=n_modes, invert=True)
             fk_target = xp.asarray(target, dtype=complex_dtype)
             scale = 1.0 / N
@@ -114,17 +124,17 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
             target = xp.asarray(target, dtype=real_dtype)
             if target.ndim != 2 or target.shape[1] != D:
                 raise ValueError(f"target must have shape (M, {D}), got {target.shape}")
-            M = target.shape[0]
-            c_target = xp.ones(M, dtype=complex_dtype)
+            M_t = target.shape[0]
+            c_target = xp.ones(M_t, dtype=complex_dtype)
             coords_t = tuple(2.0 * xp.pi * target[:, d] for d in range(D))
             plan1.setpts(*coords_t)
-            fk_target = plan1.execute(c_target) / M          # density normalisation
+            fk_target = plan1.execute(c_target) / M_t        # density normalisation
             scale = 1.0 / N                                  # so that both are densities
     else:
         fk_target = 0.0
-        scale = 1.0                                      # classic |fk|^2 (uniform)
+        scale = 1.0                                          # classic |fk|^2 (uniform)
 
-    def loss_and_grad(x: xp.ndarray):
+    def loss_and_grad(x):
         coords = tuple(2.0 * xp.pi * x[:, d] for d in range(D))
 
         plan1.setpts(*coords)
@@ -135,7 +145,7 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
 
         grads = []
         for d in range(D):
-            # gradient of |fk - fk_target|^2  →  2 * conj(diff) * (i 2π k_d)
+            # gradient of |fk - fk_target|^2  ->  2 * conj(diff) * (i 2π k_d)
             grad_source = (2.0 * w * xp.conj(diff) * (1j * 2.0 * xp.pi * ks[d])).astype(
                 complex_dtype
             )
@@ -153,7 +163,8 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
         tgt_info = f"target={target.shape[0]} pts" if target is not None else "uniform"
         print(
             f"[nufft | {device}] "
-            f"N={N}  D={D}   Chi={Chi:.2f}  "
+            f"N={N}  D={D}   Chi={Chi:.3f} (eff={chi_eff:.5f})  "
+            f"modes(+-k pairs)={M}  G={G}  "
             f"n_iter={n_iter}   ({tgt_info})"
         )
         print("For Early-stopping : Ctrl-C (Keyboard interrupt ⏹️)")
@@ -164,8 +175,7 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
 
     try:
         for it in range(n_iter):
-            envelope = 1.0 #float(np.exp(-5.0 * it / n_iter))
-            schedule = adaptive * envelope
+            schedule = adaptive
 
             loss, grad = loss_and_grad(x)
             rms = xp.sqrt(xp.mean(grad**2) + 1e-30)
@@ -193,11 +203,11 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
 
     return to_numpy(x)
 
+
 def im2spectrum(path, shape=(512, 512), invert=True):
     """
     Load any image and return its complex Fourier spectrum
     (DFT of a normalized density on `shape`).
-
 
     Returns
     -------
@@ -207,7 +217,7 @@ def im2spectrum(path, shape=(512, 512), invert=True):
     from PIL import Image
     img = Image.open(path).convert("L").resize(shape[::-1], Image.LANCZOS)
     rho = np.asarray(img, dtype=np.float64) / 255.0
-    rho = (rho.T)[::-1]   
+    rho = (rho.T)[::-1]
     if invert:
         rho = 1.0 - rho
     rho = rho / rho.sum()

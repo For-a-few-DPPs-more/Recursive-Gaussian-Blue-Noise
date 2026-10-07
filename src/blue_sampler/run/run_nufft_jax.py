@@ -1,148 +1,24 @@
 """
 fallback: replace run_nufft in dimension D >= 4 (where finufft is unavailable)
 
-The number of modes is FIXED EXACTLY: M = round(Chi * D * N) pairs ±k
-(a single representative per pair, since fk(-k) = conj(fk(k)) gives the same loss).
-The radius (as an integer |k|^2) is the minimal excess radius containing at least
-M pairs, computed by counting (theta series), without building anything.
+Wave vectors: see run_nufft_helpers.py (exactly M = round(Chi*D*N) ±k pairs).
 """
 
 import signal
 import time
-from math import gamma, pi
+from math import pi
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import jit, lax, vmap
 
+from .run_nufft_helpers import get_wave_vectors
 
-# ----------------------------------------------------------------------------
-# Integer lattice: exact counting and half-space construction
-# (identical to the KeOps fallback; can be imported from there instead)
-# ----------------------------------------------------------------------------
-
-def _isqrt(x):
-    """Exact floor(sqrt(x)) for integers (scalar or array)."""
-    x = np.asarray(x, dtype=np.int64)
-    z = np.floor(np.sqrt(x.astype(np.float64))).astype(np.int64)
-    z -= (z * z > x)
-    z += ((z + 1) * (z + 1) <= x)
-    return z
-
-
-def _min_r2_for_pairs(D, M_target, n_guess):
-    """Smallest integer n* such that #{k in Z^D, 0 < |k|^2 <= n*} / 2 >= M_target.
-
-    r_D(n) = #{k : |k|^2 = n} is obtained by convolving the 1D theta series
-    D times. No point is ever constructed.
-    """
-    n_max = max(int(n_guess), 4)
-    while True:
-        r = np.zeros(n_max + 1, dtype=np.int64)
-        r[0] = 1
-        for _ in range(D):
-            new = np.zeros_like(r)
-            s = 0
-            while s * s <= n_max:
-                new[s * s:] += (1 if s == 0 else 2) * r[: n_max + 1 - s * s]
-                s += 1
-            r = new
-        pairs = (np.cumsum(r) - 1) // 2          # ±k pairs, origin excluded
-        idx = int(np.searchsorted(pairs, M_target, side="left"))
-        if idx <= n_max:
-            return idx
-        n_max *= 2                               # search window too small: double it
-
-
-def _cylinder_z(counts, lo):
-    """For each cylinder i, the integers lo[i], lo[i]+1, ..., lo[i]+counts[i]-1,
-    concatenated (int32, no meshgrid)."""
-    total = int(counts.sum())
-    starts = (np.cumsum(counts) - counts).astype(np.int32)
-    z = np.arange(total, dtype=np.int32)
-    z -= np.repeat(starts, counts)
-    z += np.repeat(np.asarray(lo, dtype=np.int32), counts)
-    return z
-
-
-def _full_ball_int(D, r2max):
-    """All k in Z^D with |k|^2 <= r2max (exact integer bound), int32."""
-    if D == 1:
-        K = int(_isqrt(r2max))
-        return np.arange(-K, K + 1, dtype=np.int32)[:, None]
-    prev = _full_ball_int(D - 1, r2max)
-    r2 = np.sum(prev.astype(np.int64) ** 2, axis=1)
-    m = _isqrt(r2max - r2)
-    counts = 2 * m + 1
-    base = np.repeat(prev, counts, axis=0)
-    z = _cylinder_z(counts, -m)
-    return np.concatenate([base, z[:, None]], axis=1)
-
-
-def _half_ball_int(D, r2max):
-    """Half-space {last nonzero coordinate > 0}, origin excluded.
-    One representative per ±k pair, without ever building the full D-dim ball."""
-    if D == 1:
-        K = int(_isqrt(r2max))
-        return np.arange(1, K + 1, dtype=np.int32)[:, None]
-
-    # last coordinate z > 0, the first (D-1) coordinates arbitrary
-    full_prev = _full_ball_int(D - 1, r2max)
-    r2 = np.sum(full_prev.astype(np.int64) ** 2, axis=1)
-    m = _isqrt(r2max - r2)                          # z in 1..m
-    base = np.repeat(full_prev, m, axis=0)
-    z = _cylinder_z(m, np.ones_like(m))
-    part1 = np.concatenate([base, z[:, None]], axis=1)
-    del base, z, full_prev
-
-    # last coordinate z = 0, the first (D-1) coordinates in the half-space
-    half_prev = _half_ball_int(D - 1, r2max)
-    part2 = np.concatenate(
-        [half_prev, np.zeros((len(half_prev), 1), dtype=np.int32)], axis=1
-    )
-    return np.concatenate([part1, part2], axis=0)
-
-
-def exact_chi_modes(N, D, Chi, real_dtype=np.float32, rng=None, torquato=False):
-    """Return (k_coords (M, D), r2 (M,)) with M = round(Chi*D*N) EXACTLY.
-
-    One representative per ±k pair (origin excluded). The M smallest |k|^2 are
-    kept; ties in the last (partially filled) shell are broken randomly.
-
-    torquato=True: M = round(Chi * D * (N-1)) instead of round(Chi * D * N).
-    """
-    rng = np.random.default_rng() if rng is None else rng
-    n_eff = (N - 1) if torquato else N
-    M_target = int(round(Chi * D * n_eff))
-
-    # Starting bound for the search (volume-based), ONLY used to size the
-    # counting array; the final radius is the exact minimal excess radius.
-    ball_ratio = (pi ** (D / 2) / gamma(D / 2 + 1)) / (2 ** D)
-    kfrac = (2 * Chi * D / ball_ratio) ** (1.0 / D)
-    n_guess = 1.5 * (N ** (1.0 / D) * kfrac / 2) ** 2 + 10
-
-    r2star = _min_r2_for_pairs(D, M_target, n_guess)
-
-    K = _half_ball_int(D, r2star)
-    r2 = np.sum(K.astype(np.int64) ** 2, axis=1)
-    assert len(K) >= M_target
-
-    # sort by |k|^2, random tie-breaking within the last shell
-    order = np.lexsort((rng.random(len(r2)), r2))[:M_target]
-    K, r2 = K[order], r2[order]
-
-    return K.astype(real_dtype), r2.astype(np.float64)
-
-
-# ----------------------------------------------------------------------------
-# JAX pipeline
-# ----------------------------------------------------------------------------
 
 def _nufft_pipeline_jax(
     N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
     n_iter=120, precision="float32", device="auto", seed=None, verbose=1,
-    torquato=False,
 ):
     """JAX brute-force fallback for arbitrary dimension D.
     SLOW, with quadratic complexity in N.
@@ -150,7 +26,6 @@ def _nufft_pipeline_jax(
 
     The modes are exactly M = round(Chi*D*N) ±k pairs (half-space).
     """
-    np_real = np.float32 if precision == "float32" else np.float64
     real_dtype = jnp.float32 if precision == "float32" else jnp.float64
     complex_dtype = jnp.complex64 if precision == "float32" else jnp.complex128
     two_pi = jnp.asarray(2.0 * pi, dtype=real_dtype)
@@ -164,32 +39,24 @@ def _nufft_pipeline_jax(
         x0 = jnp.asarray(rng.uniform(size=(N, D)), dtype=real_dtype)
 
     # --- modes: EXACTLY round(Chi*D*N) ±k pairs, half-space ---
-    k_np, r2_np = exact_chi_modes(N, D, Chi, np_real, rng, torquato=torquato)
+    wv = get_wave_vectors(N, D, Chi, rng)
+    M, chi_eff = wv.M, wv.chi_eff
+    r2max = float(wv.r2.max())
 
-    M = k_np.shape[0]                           # number of independent modes
-    n_eff = (N - 1) if torquato else N
-    assert M == int(round(Chi * D * n_eff)), (M, Chi, D, N)
-    chi_eff = M / (D * n_eff)
-    assert abs(chi_eff - Chi) <= 0.5 / (D * n_eff) + 1e-12, (chi_eff, Chi)
-
-    k_coords = jnp.asarray(np.ascontiguousarray(k_np), dtype=real_dtype)
-    r2 = jnp.asarray(r2_np, dtype=real_dtype)
-
-    rpow = (r2 + 1e-3) ** -1.0
-    w = rpow / rpow.max()
+    k_coords = jnp.asarray(wv.k, dtype=real_dtype)
+    w = jnp.asarray(wv.w, dtype=real_dtype)
 
     # Mean over modes. fk(-k) = conj(fk(k)) => the half-space gives the same
     # loss as the full space, and the same gradient up to a factor 2
     # (cancelled by the RMS normalisation in the update step).
     norm = float(max(M, 1))
-    r2max = float(r2_np.max())
 
     # Largest |k_d| actually present (exact: integer-valued coordinates)
-    K_max = int(np.abs(k_np).max())
+    K_max = int(np.abs(wv.k).max())
     k_pos = jnp.arange(1, K_max + 1, dtype=real_dtype)
 
-    k_abs = jnp.abs(k_coords).astype(jnp.int32)
-    k_sign = jnp.sign(k_coords).astype(jnp.int8)
+    k_abs = jnp.asarray(np.abs(wv.k), dtype=jnp.int32)
+    k_sign = jnp.asarray(np.sign(wv.k), dtype=jnp.int8)
 
     # Convention: fk(x) = (1/N) * sum_j exp(-2i*pi*k.x_j)  (mean over points),
     # and the same normalisation for the target.
