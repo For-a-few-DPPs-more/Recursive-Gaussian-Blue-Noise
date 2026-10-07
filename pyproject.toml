@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name        = "blue_sampler"
-version     = "3.1.0"
+version     = "3.1.1"
 description = "Hyperuniform point sampling (blue noise) on the unit torus"
 readme      = "README.md"
 license     = { text = "MIT" }
@@ -33,9 +33,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gpu = [
+gpu12 = [
     "jax[cuda12]",
     "cupy-cuda12x[ctk]",
+    "cufinufft",
+]
+gpu13 = [
+    "jax[cuda13]",
+    "cupy-cuda13x[ctk]",
     "cufinufft",
 ]
 keops = [

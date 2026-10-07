@@ -91,12 +91,17 @@ The recommanded default is:
 . QUality can be checked with the `structure factor`.
 
 
-> **Note on GPU support**: Most methods can run on CPU only, but they can benefit from GPU acceleration.
-> To install the optional GPU dependencies for a CUDA 12 environment:
+> **Note on GPU support**: All implemented methods can run on CPU only, 
+> but most of them benefit from GPU acceleration.
+> To install the optional GPU dependencies for a `cuda-12` environment:
 > ```bash
-> pip install blue-sampler[gpu]
+> pip install blue-sampler[gpu12]
 > ```
-> If the CUDA 12 installation fails, you may need to install `jax`, `cupy`, and `cufinufft` manually. Once installed, you can check that GPU support is correctly configured by running:
+> If you are on `cuda-13`:
+> ```bash
+> pip install blue-sampler[gpu13]
+> ```
+> If the CUDA installation fails, you will have to install `jax`, `cupy`, and `cufinufft` manually. Once installed, you can check that GPU support is correctly configured by running:
 > ```python
 > import blue_sampler
 > blue_sampler.check_gpu()

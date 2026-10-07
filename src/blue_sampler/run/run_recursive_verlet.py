@@ -52,7 +52,7 @@ def _array_backend():
         return np, np.asarray, np.asarray
 
 
-def _build_skin(x, n_skin: int, max_elems: int = 2 ** 25) -> jnp.ndarray:
+def _build_skin(x, n_skin: int, max_elems: int = 2 ** 22) -> jnp.ndarray:
     """Skin: n_skin nearest neighbours on the torus [0,1)^D. Returns (N, n_skin) int32."""
     x = jnp.mod(jnp.asarray(x), 1.0)
     N, D = x.shape
