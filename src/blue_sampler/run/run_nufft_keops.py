@@ -1,12 +1,16 @@
 """
-fallback: replace run_nufft in dimension D >= 4 (were finufft is unavailable)
+fallback: replace run_nufft in dimension D >= 4 (where finufft is unavailable)
+
+Wave vectors: see run_nufft_helpers.py (exactly M = round(Chi*D*N) ±k pairs).
 """
 
 import signal
 import time
-from math import gamma, pi
+from math import pi
 
 import numpy as np
+
+from .run_nufft_helpers import get_wave_vectors
 
 try:
     from pykeops.numpy import LazyTensor
@@ -22,53 +26,16 @@ try:
 except Exception:
     KEOPS_AVAILABLE = False
 
-def memory_friendly_lattice_ball(R, D, dtype=np.float32):
-    """
-    Integer lattice points in ||k||_2 <= R.
-
-    Recursive cylinder construction:
-        B_D(R) = union_{k in B_{D-1}(R)}
-                 { (k, z) : |z| <= sqrt(R² - ||k||²) }
-
-    Never constructs a D-dimensional dense meshgrid.
-    """
-    if D == 1:
-        K = int(np.floor(R))
-        return np.arange(-K, K + 1, dtype=dtype)[:, None]
-
-    # Sparse ball in D-1
-    prev = memory_friendly_lattice_ball(R, D - 1, dtype=dtype)
-
-    r2 = np.sum(prev.astype(np.float64) ** 2, axis=1)
-    zmax = np.floor(np.sqrt(np.maximum(0.0, R * R - r2))).astype(np.int64)
-
-    # Number of z values for each cylinder
-    counts = 2 * zmax + 1
-
-    # Repeat each (D-1)-point according to its cylinder length
-    base = np.repeat(prev, counts, axis=0)
-
-    # Build all z coordinates without a D-dimensional meshgrid
-    starts = np.cumsum(np.r_[0, counts[:-1]])
-    z = np.concatenate([
-        np.arange(-m, m + 1, dtype=dtype)
-        for m in zmax
-    ])
-
-    out = np.empty((len(z), D), dtype=dtype)
-    out[:, :-1] = base
-    out[:, -1] = z
-
-    return out
-
 
 def _nufft_pipeline_keops(
     N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
     n_iter=120, precision="float32", device="auto", seed=None, verbose=1,
 ):
-    """KeOps bruteforce fallback for arbitrary dimension D.
+    """KeOps brute-force fallback for arbitrary dimension D.
     SLOW, with quadratic complexity in N.
     See blue_sampler.run.run_nufft for the fast D <= 3 version.
+
+    The modes are exactly M = round(Chi*D*N) ±k pairs (half-space).
     """
     assert KEOPS_AVAILABLE, "keops unavailable"
     real_dtype = np.float32 if precision == "float32" else np.float64
@@ -77,46 +44,25 @@ def _nufft_pipeline_keops(
     # IMPORTANT: plain Python float (a 0-d numpy array breaks LazyTensor.__rmul__)
     two_pi = float(2.0 * pi)
 
-    ball_ratio = (pi ** (D / 2) / gamma(D / 2 + 1)) / (2 ** D)
-    kfrac = (2 * Chi * D / ball_ratio) ** (1.0 / D)
+    rng = np.random.default_rng(seed)
 
     if warmstart is not None:
         x = np.asarray(warmstart, dtype=real_dtype).reshape(N, D)
     else:
-        rng = np.random.default_rng(seed)
         x = rng.uniform(size=(N, D)).astype(real_dtype)
     x = np.ascontiguousarray(x)
 
-    G = int(np.ceil(N ** (1.0 / D)) * kfrac)
-    #if G % 2:
-    #    G += 1
+    # --- modes: EXACTLY round(Chi*D*N) ±k pairs, half-space ---
+    wv = get_wave_vectors(N, D, Chi, rng)
+    k_coords = np.ascontiguousarray(wv.k.astype(real_dtype))
+    w = wv.w.astype(real_dtype)
+    M, chi_eff = wv.M, wv.chi_eff
+    r2max = float(wv.r2.max())
 
-    max_freq_sq = ((N ** (1.0 / D) * kfrac/2) ** 2)
-
-    k_coords = memory_friendly_lattice_ball(
-        np.sqrt(max_freq_sq), D, dtype=real_dtype
-    )
-
-    # Match np.fft.fftfreq(G) exactly:
-    # for even G, +G/2 does not exist in fftfreq.
-    if G % 2 == 0:
-        k_coords = k_coords[
-            np.any(k_coords != (G // 2), axis=1)
-        ]
-
-    r2 = np.sum(k_coords.astype(np.float64) ** 2, axis=1)
-
-    mask = (r2 > 0) & (r2 <= max_freq_sq)
-    k_coords = np.ascontiguousarray(
-        k_coords[mask].astype(real_dtype)
-    )
-
-    rpow = (r2[mask] + 1e-3) ** -1.0
-    w = (rpow / rpow.max()).astype(real_dtype)
-
-    M = k_coords.shape[0]
+    # Mean over modes. fk(-k) = conj(fk(k)) => the half-space gives the same
+    # loss as the full space, and the same gradient up to a factor 2
+    # (cancelled by the RMS normalisation below).
     norm = float(max(M, 1))
-    K_max = G // 2
 
     # Convention: fk(x) = (1/N) * sum_j exp(-2i*pi*k.x_j)
     if target is not None:
@@ -205,12 +151,12 @@ def _nufft_pipeline_keops(
     if verbose:
         tgt_info = f"target={target.shape[0]} pts" if target is not None else "uniform"
         print(
-            f"nufft unavailable ({D}D curently unsuported by finufft)...\n"
+            f"nufft unavailable ({D}D currently unsupported by finufft)...\n"
             f"...keops-radical fallback (slow, O(N^2) instead of NlogN)\n"
             f"should be ok for N <= 2k/4k on CPU, or 10k/20K on GPU\n"
             f"[keops-rad] "
-            f"N={N} D={D} Chi={Chi:.2f} modes={M} K_max={K_max} "
-            f"n_iter={n_iter} ({tgt_info})"
+            f"N={N} D={D} Chi={Chi:.3f} (eff={chi_eff:.5f}) modes(+-k pairs)={M} "
+            f"|k|^2_max={r2max:.0f} n_iter={n_iter} ({tgt_info})"
         )
 
     t0 = time.time()
