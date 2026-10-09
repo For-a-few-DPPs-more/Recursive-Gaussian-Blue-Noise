@@ -2,8 +2,8 @@
 hyperuniform point cloud sampling through spectral 
 optimisation. To spread the points uniformly
 (possibly according to a given target distribution),
-we compute a spectral loss, were computation is  accelerated 
-with finufft fast fourier transform (Nlog N  instead of 
+we compute a spectral loss, where computation is accelerated 
+with finufft fast fourier transform (N log N instead of 
 naive N^2), and perform gradient descent on the loss to
 kill the low frequency error.
 """
@@ -77,14 +77,6 @@ def get_wave_vectors(N, D, Chi):
     # Half-space only (origin automatically dropped)
     keep = _half_space_mask(k)
     k = k[keep]
-
-    # If the cube is still too small (rare), enlarge once more
-    if len(k) < M:
-        R = R + max(2, R // 5)
-        axis = np.arange(-R, R + 1, dtype=np.int32)
-        grids = np.meshgrid(*([axis] * D), indexing="ij")
-        k = np.stack([g.ravel() for g in grids], axis=1)
-        k = k[_half_space_mask(k)]
 
     # Sort by ||k||²
     score = np.sum((k.astype(np.float64)) ** 2, axis=1)
@@ -259,11 +251,11 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
         tgt_info = f"target={target.shape[0]} pts" if target is not None else "uniform"
         print(
             f"[nufft | {device}] "
-            f"N={N}  D={D}   Chi={Chi:.3f}"
+            f"N={N}  D={D}   Chi={Chi:.3f}  "
             f"modes(+-k pairs)={M}  G={G}  "
             f"n_iter={n_iter}   ({tgt_info})"
         )
-        print("For Early-stopping : Ctrl-C (Keyboard interrupt ⏹️)")
+        print("For early stopping : Ctrl-C (Keyboard interrupt ⏹️)")
 
     t0 = time.time()
     adaptive = delta
