@@ -9,31 +9,31 @@ from ..gpu_setup import set_config  # builds the compute "config" (CPU/GPU, floa
 # =============================================================================
 # Wave-vector selection (D = 1, 2, 3 only)
 # =============================================================================
-# On optimise les positions via un ensemble fini de modes de Fourier k ∈ ℤ^D.
-# Comme fk(-k) = conj(fk(k)), on ne garde qu'un représentant par paire ±k
-# (demi-espace). On en prend exactement M = round(Chi * D * (N-1)),
-# les M plus petits |k|² (égalité de |k|² → tirage aléatoire).
-# Chaque mode est pondéré par 1/|k|² dans la loss (basses fréquences prioritaires).
+# We optimise point positions through a finite set of Fourier modes k ∈ ℤ^D.
+# Because fk(-k) = conj(fk(k)), we keep only ONE representative per ±k pair
+# ("half-space"). We pick exactly M = round(Chi * D * (N - 1)) such modes:
+# the M with the smallest |k|² (ties broken at random).
+# Modes are weighted by 1/|k|² in the loss (low frequencies matter most).
 
 
 class WaveVectors(NamedTuple):
-    """Conteneur des modes de Fourier sélectionnés."""
-    k: np.ndarray        # (M, D) int32 – un représentant par paire ±k
+    """Container for the selected Fourier modes."""
+    k: np.ndarray        # (M, D) int32 – one representative per ±k pair
     r2: np.ndarray       # (M,)   int64 – |k|²
-    w: np.ndarray        # (M,)   float64 – poids de loss ∈ (0, 1], max = 1
-    M: int               # nombre de modes indépendants
+    w: np.ndarray        # (M,)   float64 – loss weights in (0, 1], max = 1
+    M: int               # number of independent modes
     chi_eff: float       # M / (D*(N-1)) ≈ Chi
 
 
 def _ball_volume_coeff(D):
-    """Coefficient de volume de la boule unité en dimension D (2, π ou 4π/3)."""
+    """Volume coefficient of the unit ball in dimension D (2, π or 4π/3)."""
     return {1: 2.0, 2: pi, 3: 4.0 * pi / 3.0}[D]
 
 
 def _half_space_mask(k):
     """
-    Masque booléen : True si la première coordonnée non-nulle de k est > 0.
-    Garantit exactement un représentant par paire ±k (l'origine est exclue).
+    Boolean mask: True where the first non-zero coordinate of k is > 0.
+    Guarantees exactly one representative per ±k pair (origin is excluded).
     """
     pos = np.zeros(len(k), dtype=bool)
     decided = np.zeros(len(k), dtype=bool)
@@ -46,54 +46,54 @@ def _half_space_mask(k):
 
 def get_wave_vectors(N, D, Chi, rng=None):
     """
-    Sélectionne les M modes de Fourier de plus basse fréquence.
+    Select the M lowest-frequency Fourier modes.
 
-    Objectif
-    --------
-    On veut contraindre les M ≈ Chi·D·(N-1) modes les plus bas.
-    On construit donc une "boule" de rayons croissants dans ℤ^D jusqu'à
-    avoir assez de points, on ne garde que le demi-espace (un k par ±k),
-    puis on trie par |k|² et on coupe à M.
+    Goal
+    ----
+    Constrain the M ≈ Chi·D·(N-1) lowest modes.
+    We grow a ball in ℤ^D until it contains enough points, keep only the
+    half-space (one k per ±k pair), sort by |k|² and cut at M.
 
-    Étapes
-    ------
-    1. Estimation du rayon R ≈ (2M / vol(boule unité))^{1/D}.
-    2. Énumération du cube entier [-R,R]^D → on ne retient que les
-       points du demi-espace situés dans la boule |k|² ≤ R².
-    3. Si on a trop peu de modes, on agrandit R et on recommence.
-    4. Tri par |k|² (égalité → ordre aléatoire) et conservation des M premiers.
-    5. Poids w = 1/|k|² (normalisés max=1) pour privilégier les basses fréquences.
+    Steps
+    -----
+    1. Estimate radius R ≈ (2M / vol(unit ball))^{1/D}.
+    2. Enumerate the integer cube [-R,R]^D and keep only the half-space
+       points that lie inside the ball |k|² ≤ R².
+    3. If fewer than M modes are found, enlarge R and repeat.
+    4. Sort by |k|² (random order on ties) and keep the first M.
+    5. Assign weights w = 1/|k|² (normalised to max=1) so that low
+       frequencies are penalised most.
     """
     rng = np.random.default_rng() if rng is None else rng
 
-    n_eff = N - 1                       # k=0 exclu → N-1 degrés de liberté
+    n_eff = N - 1                       # k=0 excluded → N-1 degrees of freedom
     M = int(round(Chi * D * n_eff))
     if M < 1:
         raise ValueError(f"Chi={Chi} gives no mode for N={N}, D={D}")
 
-    # Estimation initiale du rayon de la boule qui contient ~M paires ±k
+    # Initial radius estimate for a ball that should contain ~M ±k pairs
     R = int(np.ceil((2.0 * M / _ball_volume_coeff(D)) ** (1.0 / D))) + 1
 
     while True:
-        # Cube entier [-R … R]^D
+        # Integer cube [-R … R]^D
         axis = np.arange(-R, R + 1, dtype=np.int32)
         grids = np.meshgrid(*([axis] * D), indexing="ij")
         k = np.stack([g.ravel() for g in grids], axis=1)
         r2 = np.sum(k.astype(np.int64) ** 2, axis=1)
 
-        # On garde uniquement le demi-espace ET l'intérieur de la boule
+        # Keep only the half-space AND the interior of the ball
         keep = (r2 <= R * R) & _half_space_mask(k)
         if keep.sum() >= M:
             break
-        R += max(1, R // 10)            # pas assez de modes → on agrandit
+        R += max(1, R // 10)            # not enough modes → enlarge
 
     k, r2 = k[keep], r2[keep]
 
-    # Tri : d'abord |k|², puis aléatoire en cas d'égalité (dernière coquille)
+    # Sort by |k|² first, then random on ties (last shell)
     order = np.lexsort((rng.random(len(r2)), r2))[:M]
     k, r2 = k[order], r2[order]
 
-    # Poids inversement proportionnels à |k|² (basses fréquences prioritaires)
+    # Weights inversely proportional to |k|² (low frequencies prioritised)
     w = 1.0 / (r2.astype(np.float64) + 1e-3)
     w /= w.max()
 
@@ -109,45 +109,45 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
                     n_iter=120, precision="float32", device="auto", seed=None,
                     verbose=1):
     """
-    Optimisation NUFFT pour générer un nuage de points à faible discrépance dans [0,1)^D.
+    NUFFT-based optimisation that produces low-discrepancy points in [0,1)^D.
 
-    Principe
-    --------
-    On minimise l'énergie de Fourier
+    Principle
+    ---------
+    Minimise the Fourier energy
         L(x) = (1/M) Σ_k  w_k |f(k) − f_target(k)|²
-    où f(k) = Σ_j exp(i 2π k·x_j) est le facteur de structure.
-    Les gradients sont évalués en O(N log N) via NUFFT (type-1 et type-2).
+    where f(k) = Σ_j exp(i 2π k·x_j) is the structure factor.
+    Gradients are evaluated in O(N log N) via type-1 / type-2 NUFFTs.
 
-    Paramètres
+    Parameters
     ----------
     N : int
-        Nombre de points.
+        Number of points.
     D : int
-        Dimension (1, 2 ou 3 uniquement).
+        Dimension (1, 2 or 3 only).
     lr : float
-        Échelle du pas initial ≈ lr · 0.1 · N^(−1/D).
-    warmstart : array (N, D) ou None
-        Configuration de départ (sinon tirage uniforme).
+        Scale of the initial step ≈ lr · 0.1 · N^(−1/D).
+    warmstart : array (N, D) or None
+        Starting configuration (otherwise uniform random).
     Chi : float
-        Fraction de degrés de liberté contraints (modes retenus).
-        ≤ 0.3 → basses fréquences seulement (rapide)
-        ≈ 0.4 → équilibre (défaut)
-        ≥ 0.5 → cristallisation possible
-    target : array ou str, optionnel
-        Densité cible (nuage de points ou chemin d'image). None → uniforme.
+        Fraction of degrees of freedom constrained (number of retained modes).
+        ≤ 0.3 → low frequencies only (fast)
+        ≈ 0.4 → balanced (default)
+        ≥ 0.5 → may start crystallising
+    target : array or str, optional
+        Target density (point cloud or image path). None → uniform.
     n_iter : int
-        Nombre max d'itérations de descente de gradient.
+        Maximum gradient-descent iterations.
     precision : {"float32", "float64"}
-        float64 plus lent mais permet d'atteindre ~10⁻²⁰.
+        float64 is slower but can reach ~10⁻²⁰.
     device : {"cpu", "cuda", "auto"}
-    seed : int ou None
+    seed : int or None
     verbose : int
-        >0 → affiche la progression.
+        >0 prints progress.
 
-    Retour
-    ------
+    Returns
+    -------
     x : ndarray (N, D)
-        Positions optimisées dans [0,1)^D.
+        Optimised positions in [0,1)^D.
     """
     if D not in (1, 2, 3):
         raise ValueError(f"Only D=1,2,3 supported (got {D})")
@@ -165,22 +165,22 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
     eps = 1e-4 if precision == "float32" else 1e-8
     rng = np.random.default_rng(seed)
 
-    # Positions initiales
+    # Initial positions
     if warmstart is not None:
         x = xp.asarray(warmstart, dtype=real_dtype).reshape(N, D)
     else:
         x = xp.asarray(rng.uniform(size=(N, D)), dtype=real_dtype)
 
-    # Sélection des modes
+    # Mode selection
     wv = get_wave_vectors(N, D, Chi, rng)
     M, chi_eff = wv.M, wv.chi_eff
 
-    # Grille FFT minimale (paire) qui contient tous les modes sélectionnés
+    # Smallest even FFT grid that holds every selected mode
     K_max = int(np.abs(wv.k).max())
     G = 2 * (K_max + 1)
     n_modes = (G,) * D
 
-    # Fréquences en ordre FFT : 0, 1, …, G/2-1, −G/2, …, −1
+    # Frequencies in FFT order: 0, 1, …, G/2-1, −G/2, …, −1
     freqs_np = np.concatenate([np.arange(0, G // 2), np.arange(-(G // 2), 0)])
     freqs = xp.asarray(freqs_np, dtype=real_dtype)
     if D == 1:
@@ -188,14 +188,14 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
     else:
         ks = xp.meshgrid(*[freqs] * D, indexing="ij")
 
-    # Masque de poids : non-nul uniquement sur les M modes retenus
+    # Weight mask: non-zero only on the M retained modes
     w_np = np.zeros(n_modes, dtype=np.float64)
     w_np[tuple(wv.k[:, d].astype(np.int64) % G for d in range(D))] = wv.w
     w = xp.asarray(w_np, dtype=real_dtype)
 
     norm = float(M)
 
-    # Plans NUFFT réutilisables (type-1 : points → modes, type-2 : modes → points)
+    # Reusable NUFFT plans (type-1: points → modes, type-2: modes → points)
     plan_kwargs = dict(
         n_trans=1,
         eps=eps,
@@ -206,15 +206,15 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
     plan1 = nufft_lib.Plan(1, n_modes, **plan_kwargs)
     plan2 = nufft_lib.Plan(2, n_modes, **plan_kwargs)
 
-    c = xp.ones(N, dtype=complex_dtype)  # poids unitaires
+    c = xp.ones(N, dtype=complex_dtype)  # unit strengths
 
-    # Spectre cible (calculé une seule fois)
+    # Target spectrum (computed once)
     if target is not None:
-        if isinstance(target, str):          # chemin d'image
+        if isinstance(target, str):          # image path
             target = im2spectrum(target, shape=n_modes, invert=True)
             fk_target = xp.asarray(target, dtype=complex_dtype)
             scale = 1.0 / N
-        else:                                # nuage de points
+        else:                                # point cloud
             target = xp.asarray(target, dtype=real_dtype)
             if target.ndim != 2 or target.shape[1] != D:
                 raise ValueError(f"target must have shape (M, {D}), got {target.shape}")
@@ -229,18 +229,18 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
         scale = 1.0
 
     def loss_and_grad(x):
-        """Calcule la loss et le gradient ∇_x L pour les positions courantes."""
-        # NUFFT attend des coordonnées dans [−π, π)
+        """Return (loss, gradient ∇_x L) for the current positions."""
+        # NUFFT expects coordinates in [−π, π)
         coords = tuple(2.0 * xp.pi * x[:, d] for d in range(D))
 
-        # Passage avant (type-1) : f(k)
+        # Forward pass (type-1): f(k)
         plan1.setpts(*coords)
         fk = plan1.execute(c) * scale
 
         diff = fk - fk_target
         loss = float(xp.sum(xp.abs(diff) ** 2 * w) / norm)
 
-        # Passage arrière (type-2) : gradient par composante
+        # Backward pass (type-2): gradient per coordinate
         grads = []
         for d in range(D):
             grad_source = (2.0 * w * xp.conj(diff) * (1j * 2.0 * xp.pi * ks[d])).astype(
@@ -253,7 +253,7 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
         grad = xp.stack(grads, axis=1) / norm
         return loss, grad
 
-    # Pas initial ≈ fraction de la distance moyenne inter-points
+    # Initial step ≈ fraction of the mean inter-point distance
     delta = lr * 0.1 * N ** (-1.0 / D)
 
     if verbose:
@@ -274,12 +274,12 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
         for it in range(n_iter):
             loss, grad = loss_and_grad(x)
 
-            # Normalisation RMS → le pas contrôle uniquement la longueur du déplacement
+            # RMS normalisation → step length is controlled solely by `adaptive`
             rms = xp.sqrt(xp.mean(grad**2) + 1e-30)
             x_new = x - (grad / rms) * adaptive
-            x_new = x_new - xp.floor(x_new)      # repli périodique dans [0,1)^D
+            x_new = x_new - xp.floor(x_new)      # wrap back into [0,1)^D
 
-            # Adaptation du pas ("bold driver")
+            # Adaptive step ("bold driver")
             if loss < prev_loss:
                 x = x_new
                 adaptive *= 1.05
@@ -304,24 +304,25 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
 
 def im2spectrum(path, shape=(512, 512), invert=True):
     """
-    Charge une image et renvoie son spectre de Fourier (DFT d'une densité normalisée).
+    Load an image and return its complex Fourier spectrum
+    (DFT of a normalised density on `shape`).
 
-    - Conversion en niveaux de gris, redimensionnement à `shape`.
-    - Orientation : origine en bas à gauche (convention mathématique).
-    - Si invert=True, les pixels sombres correspondent à une densité élevée.
-    - Normalisation → densité de probabilité (somme = 1).
+    - Convert to greyscale and resize to `shape`.
+    - Origin is placed at the bottom-left (mathematical convention).
+    - If invert=True, dark pixels become high density.
+    - Normalise so the density sums to 1.
 
-    Retour
-    ------
-    spectrum : ndarray complexe de shape `shape`
+    Returns
+    -------
+    spectrum : complex ndarray of shape `shape`
     """
     from PIL import Image
 
     img = Image.open(path).convert("L").resize(shape[::-1], Image.LANCZOS)
     rho = np.asarray(img, dtype=np.float64) / 255.0
-    rho = (rho.T)[::-1]                 # origine en bas à gauche
+    rho = (rho.T)[::-1]                 # origin at bottom-left
     if invert:
-        rho = 1.0 - rho                 # sombre → densité forte
+        rho = 1.0 - rho                 # dark → high density
     rho = rho / rho.sum()
     spectrum = np.fft.fftn(rho)
     return spectrum
