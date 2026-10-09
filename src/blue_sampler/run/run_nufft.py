@@ -244,7 +244,7 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
         print(
             f"[nufft | {device}] "
             f"N={N}  D={D}   Chi={Chi:.3f}  "
-            f"modes(+-k pairs)={M}  G={G}  "
+            f"modes={M}  G={G}  "
             f"n_iter={n_iter}   ({tgt_info})"
         )
         print("For early stopping : Ctrl-C (Keyboard interrupt ⏹️)")
