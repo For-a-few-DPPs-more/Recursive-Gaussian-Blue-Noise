@@ -21,19 +21,16 @@ from ..gpu_setup import set_config  # builds the compute "config" (CPU/GPU, floa
 # Wave-vector selection (D = 1, 2, 3 only)
 # =============================================================================
 # We optimise point positions through a finite set of Fourier modes k ∈ ℤ^D.
-# Because fk(-k) = conj(fk(k)), we keep only ONE representative per ±k pair
-# ("half-space"). We pick exactly M = round(Chi * D * (N - 1)) such modes:
-# the M with the smallest |k|² (ties broken at random).
 # Modes are weighted by 1/|k|² in the loss (low frequencies matter most).
 
+twopi = 2 * pi
 
 class WaveVectors(NamedTuple):
     """Container for the selected Fourier modes."""
     k: np.ndarray        # (M, D) int32 – one representative per ±k pair
-    r2: np.ndarray       # (M,)   int64 – |k|²
+    k2: np.ndarray       # (M,)   int64 – |k|²
     w: np.ndarray        # (M,)   float64 – loss weights in (0, 1], max = 1
     M: int               # number of independent modes
-    chi_eff: float       # M / (D*(N-1)) ≈ Chi
 
 
 def _half_space_mask(k):
@@ -50,7 +47,7 @@ def _half_space_mask(k):
     return pos
 
 
-def get_wave_vectors(N, D, Chi, rng=None):
+def get_wave_vectors(N, D, Chi):
     """
     Select the M lowest-frequency Fourier modes.
 
@@ -60,12 +57,9 @@ def get_wave_vectors(N, D, Chi, rng=None):
        half-space modes (R estimated from the volume of the unit ball).
     2. Generate every integer wave-vector inside that cube.
     3. Keep only the half-space representatives (one k per ±k pair).
-    4. Sort by ||k - ε|| where ε is a small random offset (breaks ties
-       smoothly) and keep the first M.
+    4. Sort by ||k|| and keep the first M.
     5. Assign weights w = 1/|k|² (normalised to max=1).
     """
-    rng = np.random.default_rng() if rng is None else rng
-
     n_eff = N - 1                       # k=0 excluded → N-1 degrees of freedom
     M = int(round(Chi * D * n_eff))
     if M < 1:
@@ -92,20 +86,18 @@ def get_wave_vectors(N, D, Chi, rng=None):
         k = np.stack([g.ravel() for g in grids], axis=1)
         k = k[_half_space_mask(k)]
 
-    # Sort by ||k - ε||² where ε is a tiny random offset → random tie-breaking
-    eps = rng.uniform(-0.5, 0.5, size=k.shape)
-    score = np.sum((k.astype(np.float64) - eps) ** 2, axis=1)
+    # Sort by ||k||²
+    score = np.sum((k.astype(np.float64)) ** 2, axis=1)
     order = np.argsort(score)[:M]
     k = k[order]
 
-    r2 = np.sum(k.astype(np.int64) ** 2, axis=1)
+    k2 = np.sum(k.astype(np.int64) ** 2, axis=1)
 
     # Weights inversely proportional to |k|² (low frequencies prioritised)
-    w = 1.0 / (r2.astype(np.float64) + 1e-3)
+    w = 1.0 / (k2.astype(np.float64) + 1e-3)
     w /= w.max()
 
-    chi_eff = M / (D * n_eff)
-    return WaveVectors(k=k, r2=r2, w=w, M=M, chi_eff=chi_eff)
+    return WaveVectors(k=k, k2=k2, w=w, M=M)
 
 
 # =============================================================================
@@ -179,8 +171,8 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
         x = xp.asarray(rng.uniform(size=(N, D)), dtype=real_dtype)
 
     # Mode selection
-    wv = get_wave_vectors(N, D, Chi, rng)
-    M, chi_eff = wv.M, wv.chi_eff
+    wv = get_wave_vectors(N, D, Chi)
+    M = wv.M
 
     # Smallest even FFT grid that holds every selected mode
     K_max = int(np.abs(wv.k).max())
@@ -213,7 +205,7 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
     plan1 = nufft_lib.Plan(1, n_modes, **plan_kwargs)
     plan2 = nufft_lib.Plan(2, n_modes, **plan_kwargs)
 
-    c = xp.ones(N, dtype=complex_dtype)  # unit strengths
+    c = xp.ones(N, dtype=complex_dtype)  # unit spatial weights
 
     # Target spectrum (computed once)
     if target is not None:
@@ -227,7 +219,7 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
                 raise ValueError(f"target must have shape (M, {D}), got {target.shape}")
             M_t = target.shape[0]
             c_target = xp.ones(M_t, dtype=complex_dtype)
-            coords_t = tuple(2.0 * xp.pi * target[:, d] for d in range(D))
+            coords_t = tuple(twopi * target[:, d] for d in range(D))
             plan1.setpts(*coords_t)
             fk_target = plan1.execute(c_target) / M_t
             scale = 1.0 / N
@@ -238,7 +230,7 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
     def loss_and_grad(x):
         """Return (loss, gradient ∇_x L) for the current positions."""
         # NUFFT expects coordinates in [−π, π)
-        coords = tuple(2.0 * xp.pi * x[:, d] for d in range(D))
+        coords = tuple(twopi * x[:, d] for d in range(D))
 
         # Forward pass (type-1): f(k)
         plan1.setpts(*coords)
@@ -250,7 +242,7 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
         # Backward pass (type-2): gradient per coordinate
         grads = []
         for d in range(D):
-            grad_source = (2.0 * w * xp.conj(diff) * (1j * 2.0 * xp.pi * ks[d])).astype(
+            grad_source = (2.0 * w * xp.conj(diff) * (1j * twopi * ks[d])).astype(
                 complex_dtype
             )
             plan2.setpts(*coords)
@@ -267,7 +259,7 @@ def _nufft_pipeline(N=10_000, D=2, lr=1.0, warmstart=None, Chi=0.4, target=None,
         tgt_info = f"target={target.shape[0]} pts" if target is not None else "uniform"
         print(
             f"[nufft | {device}] "
-            f"N={N}  D={D}   Chi={Chi:.3f} (eff={chi_eff:.5f})  "
+            f"N={N}  D={D}   Chi={Chi:.3f}"
             f"modes(+-k pairs)={M}  G={G}  "
             f"n_iter={n_iter}   ({tgt_info})"
         )
