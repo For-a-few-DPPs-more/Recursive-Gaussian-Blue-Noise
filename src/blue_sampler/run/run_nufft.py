@@ -34,17 +34,9 @@ class WaveVectors(NamedTuple):
 
 
 def _half_space_mask(k):
-    """
-    Boolean mask: True where the first non-zero coordinate of k is > 0.
-    Guarantees exactly one representative per ±k pair (origin is excluded).
-    """
-    pos = np.zeros(len(k), dtype=bool)
-    decided = np.zeros(len(k), dtype=bool)
-    for d in range(k.shape[1]):
-        nz = ~decided & (k[:, d] != 0)
-        pos |= nz & (k[:, d] > 0)
-        decided |= nz
-    return pos
+    """True where the first non-zero coordinate of k is > 0 (origin excluded)."""
+    first = np.argmax(k != 0, axis=1)          # index of first non-zero coord
+    return k[np.arange(len(k)), first] > 0
 
 
 def get_wave_vectors(N, D, Chi):
