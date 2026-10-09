@@ -2,8 +2,10 @@
 hyperuniform point cloud sampling through spectral 
 optimisation. To spread the points uniformly
 (possibly according to a given target distribution),
-we compute a spectral lost, accelerated with finufft 
-fast fourier transform, and perform gradient descent.
+we compute a spectral loss, were computation is  accelerated 
+with finufft fast fourier transform (Nlog N  instead of 
+naive N^2), and perform gradient descent on the loss to
+kill the low frequency error.
 """
 
 
