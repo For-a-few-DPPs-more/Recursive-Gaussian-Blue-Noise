@@ -1,3 +1,12 @@
+"""
+hyperuniform point cloud sampling through spectral 
+optimisation. To spread the points uniformly
+(possibly according to a given target distribution),
+we compute a spectral lost, accelerated with finufft 
+fast fourier transform, and perform gradient descent.
+"""
+
+
 import time
 from math import pi
 from typing import NamedTuple
@@ -25,11 +34,6 @@ class WaveVectors(NamedTuple):
     chi_eff: float       # M / (D*(N-1)) ≈ Chi
 
 
-def _ball_volume_coeff(D):
-    """Volume coefficient of the unit ball in dimension D (2, π or 4π/3)."""
-    return {1: 2.0, 2: pi, 3: 4.0 * pi / 3.0}[D]
-
-
 def _half_space_mask(k):
     """
     Boolean mask: True where the first non-zero coordinate of k is > 0.
@@ -48,21 +52,15 @@ def get_wave_vectors(N, D, Chi, rng=None):
     """
     Select the M lowest-frequency Fourier modes.
 
-    Goal
-    ----
-    Constrain the M ≈ Chi·D·(N-1) lowest modes.
-    We grow a ball in ℤ^D until it contains enough points, keep only the
-    half-space (one k per ±k pair), sort by |k|² and cut at M.
-
-    Steps
-    -----
-    1. Estimate radius R ≈ (2M / vol(unit ball))^{1/D}.
-    2. Enumerate the integer cube [-R,R]^D and keep only the half-space
-       points that lie inside the ball |k|² ≤ R².
-    3. If fewer than M modes are found, enlarge R and repeat.
-    4. Sort by |k|² (random order on ties) and keep the first M.
-    5. Assign weights w = 1/|k|² (normalised to max=1) so that low
-       frequencies are penalised most.
+    Simple strategy
+    ---------------
+    1. Choose a covering cube [-R, R]^D large enough to contain at least M
+       half-space modes (R estimated from the volume of the unit ball).
+    2. Generate every integer wave-vector inside that cube.
+    3. Keep only the half-space representatives (one k per ±k pair).
+    4. Sort by ||k - ε|| where ε is a small random offset (breaks ties
+       smoothly) and keep the first M.
+    5. Assign weights w = 1/|k|² (normalised to max=1).
     """
     rng = np.random.default_rng() if rng is None else rng
 
@@ -71,27 +69,34 @@ def get_wave_vectors(N, D, Chi, rng=None):
     if M < 1:
         raise ValueError(f"Chi={Chi} gives no mode for N={N}, D={D}")
 
-    # Initial radius estimate for a ball that should contain ~M ±k pairs
-    R = int(np.ceil((2.0 * M / _ball_volume_coeff(D)) ** (1.0 / D))) + 1
+    # Volume of the unit ball → estimate a covering radius R
+    vol = {1: 2.0, 2: pi, 3: 4.0 * pi / 3.0}[D]
+    R = int(np.ceil((2.0 * M / vol) ** (1.0 / D))) + 2   # +2 safety margin
 
-    while True:
-        # Integer cube [-R … R]^D
+    # Generate the whole integer cube [-R … R]^D
+    axis = np.arange(-R, R + 1, dtype=np.int32)
+    grids = np.meshgrid(*([axis] * D), indexing="ij")
+    k = np.stack([g.ravel() for g in grids], axis=1)
+
+    # Half-space only (origin automatically dropped)
+    keep = _half_space_mask(k)
+    k = k[keep]
+
+    # If the cube is still too small (rare), enlarge once more
+    if len(k) < M:
+        R = R + max(2, R // 5)
         axis = np.arange(-R, R + 1, dtype=np.int32)
         grids = np.meshgrid(*([axis] * D), indexing="ij")
         k = np.stack([g.ravel() for g in grids], axis=1)
-        r2 = np.sum(k.astype(np.int64) ** 2, axis=1)
+        k = k[_half_space_mask(k)]
 
-        # Keep only the half-space AND the interior of the ball
-        keep = (r2 <= R * R) & _half_space_mask(k)
-        if keep.sum() >= M:
-            break
-        R += max(1, R // 10)            # not enough modes → enlarge
+    # Sort by ||k - ε||² where ε is a tiny random offset → random tie-breaking
+    eps = rng.uniform(-0.5, 0.5, size=k.shape)
+    score = np.sum((k.astype(np.float64) - eps) ** 2, axis=1)
+    order = np.argsort(score)[:M]
+    k = k[order]
 
-    k, r2 = k[keep], r2[keep]
-
-    # Sort by |k|² first, then random on ties (last shell)
-    order = np.lexsort((rng.random(len(r2)), r2))[:M]
-    k, r2 = k[order], r2[order]
+    r2 = np.sum(k.astype(np.int64) ** 2, axis=1)
 
     # Weights inversely proportional to |k|² (low frequencies prioritised)
     w = 1.0 / (r2.astype(np.float64) + 1e-3)
