@@ -39,7 +39,7 @@ points_wd = sample_wd(N, D)
 
 ```
 
-Additional keyword arguments e.g. "chi = 0.4" can be passed to the sampling functions and forwarded to the underlying implementation.
+Additional keyword arguments e.g. "Chi = 0.4" can be passed to the sampling functions and forwarded to the underlying implementation.
 
 ## Accelerated L2 sampling with FINUFFT
 

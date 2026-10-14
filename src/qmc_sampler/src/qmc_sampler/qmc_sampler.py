@@ -13,7 +13,7 @@ from typing import Optional
 
 import numpy as np
 
-from .qmc_geom import CHI, get_wave_vectors
+from qmc_sampler.qmc_geom import CHI, get_wave_vectors
 
 
 try:
@@ -57,11 +57,13 @@ two_pi        = 2.0 * pi
 # ------------------------------------------------------------------
 # Wrapers (for conveniance)
 # ------------------------------------------------------------------
-def sample_l1(N, D):
-    return sample(N, D, "l1", verbose = 0)
+def sample_l1(N, D, **kwargs):
+    kwargs.setdefault("verbose", 0)
+    return sample(N, D, "l1", **kwargs)
 
-def sample_wd(N, D):
-    return sample(N, D, "wd", verbose = 0)
+def sample_wd(N, D, **kwargs):
+    kwargs.setdefault("verbose", 0)
+    return sample(N, D, "wd", **kwargs)
 
 # ------------------------------------------------------------------
 # Main KeOps optimisation pipeline
@@ -70,7 +72,7 @@ def sample(
     N,
     D,
     mode,
-    chi: float = CHI,
+    Chi: float = CHI,
     target: Optional[np.ndarray] = None,
     seed: Optional[int] = None,
     n_iter: int = NITER,
@@ -86,7 +88,7 @@ def sample(
     N        : number of points
     D        : dimension
     mode     : "wd" (WD product weights) or "l1"
-    chi      : fraction of degrees of freedom kept as Fourier modes
+    Chi      : fraction of degrees of freedom kept as Fourier modes
     target   : optional target point cloud (for non-uniform densities)
     seed     : random seed
     n_iter   : number of gradient steps
@@ -100,11 +102,12 @@ def sample(
     """
     rng = np.random.default_rng(seed)
     if warmstart is None and mode == "wd":
-        warmstart = sample(N, D, "l1", chi = 0.5, target = target, seed = seed, 
+        warmstart = sample(N, D, "l1", Chi = 0.5, target = target, seed = seed, 
                            n_iter = n_iter, lr = lr, verbose = verbose)
     x = rng.uniform(size=(N, D)).astype(real_dtype) if warmstart is None else warmstart
 
-    K, kl1, w, M = get_wave_vectors(N, D, mode=mode, chi=chi, rng=rng)
+    K, kl1, w, M = get_wave_vectors(N, D, mode=mode, chi=Chi, rng=rng)
+    w = (1/(K*K + EPSILON).sum(axis = -1))
     k_coords = np.ascontiguousarray(K.astype(real_dtype))
     norm = float(max(M, 1))
 
@@ -152,7 +155,7 @@ def sample(
     prev_loss = np.inf
 
     if verbose:
-        print(f"[keops-{mode}] N={N}  D={D}  modes={M}  chi={chi:.3f}")
+        print(f"[keops-{mode}] N={N}  D={D}  modes={M}  Chi={Chi:.3f}")
 
     t0 = time.time()
     for it in range(n_iter):
@@ -175,5 +178,7 @@ def sample(
 
     if verbose:
         print(f"done in {time.time() - t0:.1f}s")
+        cosmode, sinmode = fourier_modes(x)
+        print(f"max fourier mode = {(cosmode**2 + sinmode**2).max()*N}")
 
     return np.asarray(x)

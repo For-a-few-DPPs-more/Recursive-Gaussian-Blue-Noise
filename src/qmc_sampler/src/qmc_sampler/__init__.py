@@ -1,6 +1,8 @@
 MESSAGE = """
 qmc_sampler: lightweight wrapper around the blue_sampler python package for generating QMC 
-point set, see https://github.com/For-a-few-DPPs-more/hyperuniform-samplers
+point set, see
+     https://github.com/For-a-few-DPPs-more/Recursive-Gaussian-Blue-Noise/src/qmc_sampler (sampler)
+     https://github.com/For-a-few-DPPs-more/hyperuniform-samplers (datasets)
 
 Available methods:
 - sample_l2: uses a classical isotropic L2-ball as the spectral exclusion region.
@@ -41,4 +43,4 @@ def plot_structure_factor(*args, **kwargs):
     return _psf(*args, **kwargs)
 
 __all__ = ["sample_l1", "sample_l2", "sample_wd", "plot", "plot_structure_factor"]
-__version__ = "1.0.3"
+__version__ = "1.0.4"
