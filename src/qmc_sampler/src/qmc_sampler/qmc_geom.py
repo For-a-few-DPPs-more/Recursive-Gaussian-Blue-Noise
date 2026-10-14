@@ -19,9 +19,6 @@ and 1 / (2*pi**2*m**2) at every nonzero integer frequency.
 
 Only one vector from each pair {k, -k} is retained: the first nonzero
 coordinate must be positive.
-
-Generating the wd ball, including efficient generation of all the orbitals,
- is tricky and has been AI generated (could'nt do it alone).
 """
 from __future__ import annotations
 
