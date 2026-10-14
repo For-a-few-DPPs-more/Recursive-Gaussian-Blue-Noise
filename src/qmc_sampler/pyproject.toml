@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "qmc-sampler"
-version = "1.0.0"
+version = "1.0.1"
 description = "QMC sampling methods based on blue_sampler"
 readme = "README.md"
 license = { text = "MIT" }
@@ -28,7 +28,7 @@ dependencies = [
 Repository = "https://github.com/For-a-few-DPPs-more/hyperuniform-samplers"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/qmc_sampler"]
+packages = ["src"]
 
 [tool.hatch.build]
 exclude = [
