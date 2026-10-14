@@ -1,8 +1,8 @@
 # qmc-sampler
 
-**Quasi-Monte Carlo point sampling with spectral exclusion and discrepancy-based criteria.**
+**Quasi-Monte Carlo point sampling from spectral optimisation.**
 
-`qmc-sampler` is a lightweight wrapper around [`blue_sampler`](https://github.com/For-a-few-DPPs-more/hyperuniform-samplers) that provides several sampling methods for generating quasi-Monte Carlo (QMC) point sets.
+`qmc-sampler` is a lightweight wrapper around [`blue_sampler`](https://github.com/For-a-few-DPPs-more/hyperuniform-samplers) that provides several sampling methods for generating quasi-Monte Carlo (QMC) point sets, by minimising the spectral loss over all wave vectors within an exclusion region. 3 kinds of exclusion regions, with different geometrical shape, are available: l2, l1, wd.
 
 ## Installation
 
@@ -11,9 +11,6 @@ Install from PyPI:
 ```bash
 pip install qmc-sampler
 ```
-
-For the optional KeOps backend:
-
 
 ## Available sampling methods
 
@@ -60,8 +57,6 @@ def sample_l2(N, D, **kwargs):
     kwargs.setdefault("verbose", 0)
     return _nufft_pipeline(N, D, **kwargs)
 ```
-
-**Note:** This uses a private function from `blue_sampler` (indicated by the leading underscore), so its API may change between versions. The accelerated backend also requires compatible GPU dependencies and is intended for supported 2D and 3D problems.
 
 ## Plotting utilities
 
