@@ -61,6 +61,10 @@ def sample_l1(N, D, **kwargs):
     kwargs.setdefault("verbose", 0)
     return sample(N, D, "l1", **kwargs)
 
+def sample_l2(N, D, **kwargs):
+    kwargs.setdefault("verbose", 0)
+    return sample(N, D, "l2", **kwargs)
+
 def sample_wd(N, D, **kwargs):
     kwargs.setdefault("verbose", 0)
     return sample(N, D, "wd", **kwargs)
@@ -87,7 +91,7 @@ def sample(
     ----------
     N        : number of points
     D        : dimension
-    mode     : "wd" (WD product weights) or "l1"
+    mode     : "wd" (WD product weights), "l1" or "l2"
     Chi      : fraction of degrees of freedom kept as Fourier modes
     target   : optional target point cloud (for non-uniform densities)
     seed     : random seed
@@ -106,7 +110,7 @@ def sample(
                            n_iter = n_iter, lr = lr, verbose = verbose)
     x = rng.uniform(size=(N, D)).astype(real_dtype) if warmstart is None else warmstart
 
-    K, kl1, w, M = get_wave_vectors(N, D, mode=mode, chi=Chi, rng=rng)
+    K, w, M = get_wave_vectors(N, D, mode=mode, chi=Chi, rng=rng)
     w = (1/(K*K + EPSILON).sum(axis = -1))
     k_coords = np.ascontiguousarray(K.astype(real_dtype))
     norm = float(max(M, 1))

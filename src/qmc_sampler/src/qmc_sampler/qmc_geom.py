@@ -1,25 +1,54 @@
 """
 qmc_geom.py
 -----------
-Geometric utilities for Fourier mode selection on the unit torus.
+Geometric utilities for selecting Fourier modes on the unit torus.
 
-Provides:
-  - Fourier weights of the SciPy wrap-around discrepancy (WD) kernel
-  - exact half-space WD mode selection by signed-permutation orbits
-  - classical L1-ball construction
-  - unified get_wave_vectors interface
+Main interface
+--------------
+get_wave_vectors(N, D, chi, ...)
 
-The WD weights are the Fourier coefficients of the one-dimensional kernel
-used by scipy.stats.qmc.discrepancy(..., method="WD"):
+For given parameters N, D, and chi, this function returns:
+
+    - The selected wave vectors k in the exclusion region.
+    - The corresponding Fourier weights, used to compute the
+      weighted loss
+
+          sum_k weight(k) * |X_hat(k)|**2
+
+    - The number of selected wave vectors, for a sanity check.
+      The expected count is
+
+          M = chi * D * (N - 1)
+
+Exclusion geometries
+--------------------
+The exclusion region can have different shapes, specified by
+the geometry parameter:
+
+    - "l2": Euclidean (L2) geometry.
+    - "l1": Manhattan (L1) geometry.
+    - "wd": Weighted discrepancy (WD) geometry.
+
+WD Fourier weights
+------------------
+For "wd", the Fourier weights are derived from the one-dimensional
+kernel used by scipy.stats.qmc.discrepancy(method="WD"):
 
     K(t) = 3/2 - |t| + |t|**2,  for t in [0, 1],
 
-with periodic extension. Its Fourier coefficients are 4/3 at frequency zero
-and 1 / (2*pi**2*m**2) at every nonzero integer frequency.
+with periodic extension.
 
-Only one vector from each pair {k, -k} is retained: the first nonzero
-coordinate must be positive.
+Its Fourier coefficients are:
+
+    - 4/3 at frequency m = 0.
+    - 1 / (2 * pi**2 * m**2) for nonzero integer frequencies m.
+
+Fourier half space symetry convention
+-----------------------
+Only one representative of each pair {k, -k} is retained:
+the first nonzero coordinate of k must be positive.
 """
+
 from __future__ import annotations
 
 from collections import Counter
@@ -269,6 +298,11 @@ def get_wave_vectors(
     rng: Optional[np.random.Generator] = None,
     epsilon: float = EPSILON,
 ):
+    if mode == "l2":
+        from blue_sampler.run.run_nufft_helpers import get_wave_vectors as gwv_l2
+        WV = gwv_l2(N, D, chi, rng)
+        return WV.k, WV.w.astype(np.float64), WV.M
+
     rng = np.random.default_rng() if rng is None else rng
     M_target = _n_modes_target(N, D, chi)
     if M_target == 0:
@@ -298,29 +332,4 @@ def get_wave_vectors(
     else:
         raise ValueError(f"Unknown mode '{mode}'. Choose 'wd' or 'l1'.")
     K = np.ascontiguousarray(K.astype(np.int32))
-    kl1 = np.abs(K).sum(1).astype(np.int64)
-    return K, kl1, weights.astype(np.float64), len(K)
-
-
-def _check_orbits(D: int, max_frequency: int = 4) -> bool:
-    """Run small exhaustive checks of orbit counts, signs, and weights."""
-    from itertools import combinations_with_replacement
-
-    for support in range(1, D + 1):
-        for ascending in combinations_with_replacement(
-            range(1, max_frequency + 1), support
-        ):
-            representative = tuple(reversed(ascending))
-            modes = list(_expand_half_orbit(representative, D))
-            assert len(modes) == _orbit_size(representative, D)
-            assert len(set(modes)) == len(modes)
-
-            for vector in modes:
-                first_nonzero = next(value for value in vector if value != 0)
-                assert first_nonzero > 0
-                assert np.isclose(
-                    np.prod([_hatK(value) for value in vector]),
-                    _orbit_weight(representative, D),
-                )
-
-    return True
+    return K, weights.astype(np.float64), len(K)

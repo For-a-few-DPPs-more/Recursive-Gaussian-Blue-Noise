@@ -27,12 +27,7 @@ Once installed, you will have to overwright the default sample_l2 implementation
 print(MESSAGE)
 
 
-from .qmc_sampler import sample_l1, sample_wd
-
-def sample_l2(N, D, **kwargs):
-    from blue_sampler.run.run_nufft_keops import _nufft_pipeline_keops
-    kwargs.setdefault("verbose", 0)
-    return _nufft_pipeline_keops(N, D, **kwargs)
+from .qmc_sampler import sample_l1, sample_l2, sample_wd
 
 def plot(*args, **kwargs):
     from blue_sampler import plot as _plot
@@ -43,4 +38,4 @@ def plot_structure_factor(*args, **kwargs):
     return _psf(*args, **kwargs)
 
 __all__ = ["sample_l1", "sample_l2", "sample_wd", "plot", "plot_structure_factor"]
-__version__ = "1.0.4"
+__version__ = "1.0.5"

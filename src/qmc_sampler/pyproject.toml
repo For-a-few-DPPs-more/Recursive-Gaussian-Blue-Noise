@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "qmc-sampler"
-version = "1.0.4"
+version = "1.0.5"
 description = "QMC sampling methods based on blue_sampler"
 readme = "README.md"
 license = { text = "MIT" }
