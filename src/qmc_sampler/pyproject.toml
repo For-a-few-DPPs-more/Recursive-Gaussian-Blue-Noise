@@ -1,0 +1,42 @@
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qmc-sampler"
+version = "1.0.0"
+description = "QMC sampling methods based on blue_sampler"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+
+keywords = [
+    "QMC",
+    "quasi-Monte Carlo",
+    "point sampling",
+    "hyperuniformity",
+    "wrap-around discrepancy",
+    "NUFFT",
+]
+
+dependencies = [
+    "blue-sampler[keops]",
+]
+
+[project.urls]
+Repository = "https://github.com/For-a-few-DPPs-more/hyperuniform-samplers"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/qmc_sampler"]
+
+[tool.hatch.build]
+exclude = [
+    "**/*.ipynb",
+    "**/*.jpg",
+    "**/*.png",
+    "**/__pycache__",
+]
+
+[tool.ruff]
+line-length = 100
