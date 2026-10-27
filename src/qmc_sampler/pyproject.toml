@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "qmc-sampler"
-version = "1.0.5"
+version = "2.0.2"
 description = "QMC sampling methods based on blue_sampler"
 readme = "README.md"
 license = { text = "MIT" }
@@ -22,6 +22,7 @@ keywords = [
 
 dependencies = [
     "blue-sampler[keops]",
+    "scipy",
 ]
 
 [project.urls]

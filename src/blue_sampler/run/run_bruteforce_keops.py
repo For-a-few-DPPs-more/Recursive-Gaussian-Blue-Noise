@@ -98,10 +98,11 @@ def make_pipeline(N, D, n_iter=60, lrbase=1.0, verbose=1):
 
         log(f"sampling: {n_steps} iterations")
 
+        gradnorm = np.float32(np.linalg.norm(grad(x), axis=-1)).mean()  # FIX
+        
+
         for it in range(n_steps):
             gradx = grad(x)
-            gradnorm = np.float32(np.linalg.norm(gradx, axis=-1).mean())  # FIX
-
             idx = (
                 np.arange(N)
                 if sample_size == N

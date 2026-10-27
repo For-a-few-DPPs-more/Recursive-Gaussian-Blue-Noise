@@ -1,8 +1,9 @@
 """
 see https://github.com/For-a-few-DPPs-more/Recursive-Gaussian-Blue-Noise/blob/main/src/blue_sampler/run/run_nufft.py:
 same but:
-  - L1 ball or wd ball instead of L2 ball
+  - L1 ball or wd ball instead of only L2 ball
   - keops backend instead of finufft
+  - quasi newton finition (optional)
 """
 
 from __future__ import annotations
@@ -83,6 +84,7 @@ def sample(
     lr: float = LR,
     verbose: int = 1,
     warmstart: Optional[np.ndarray] = None,
+    quasi_newton_finition: bool = True,
 ):
     """
     Generate a low-discrepancy point set on [0,1)^D by spectral optimisation.
@@ -107,10 +109,10 @@ def sample(
     rng = np.random.default_rng(seed)
     if warmstart is None and mode == "wd":
         warmstart = sample(N, D, "l1", Chi = 0.5, target = target, seed = seed, 
-                           n_iter = n_iter, lr = lr, verbose = verbose)
+                           n_iter = n_iter, lr = lr, verbose = verbose, quasi_newton_finition = False)
     x = rng.uniform(size=(N, D)).astype(real_dtype) if warmstart is None else warmstart
 
-    K, w, M = get_wave_vectors(N, D, mode=mode, chi=Chi, rng=rng)
+    K, M = get_wave_vectors(N, D, mode=mode, chi=Chi, rng=rng)
     w = (1/(K*K + EPSILON).sum(axis = -1))
     k_coords = np.ascontiguousarray(K.astype(real_dtype))
     norm = float(max(M, 1))
@@ -179,6 +181,33 @@ def sample(
 
         if verbose and (it % 20 == 0 or it == n_iter - 1):
             print(f"  iter {it:4d} | loss {loss:.3e}")
+        # ------------------------------------------------------------------
+    # Finition L-BFGS (quasi-Newton) :
+    # ------------------------------------------------------------------
+    if quasi_newton_finition:
+        from scipy.optimize import minimize
+
+        loss0 = loss
+
+        def fun(flat):
+            pts = np.asarray(flat, dtype=real_dtype).reshape(N, D)
+            l, g = loss_and_grad(pts)
+            return l/loss0, g.ravel()/loss0
+
+        t1 = time.time()
+        res = minimize(
+            fun,
+            x.ravel(), 
+            jac=True,
+            method="L-BFGS-B",
+            options={"maxiter": n_iter, "maxcor": 30, "maxfun": 2 * n_iter, "ftol": 0, "gtol": 0, "maxfun": 10*n_iter},
+        )
+
+        x = np.mod(res.x.reshape(N, D), 1.0).astype(real_dtype)
+
+        if verbose:
+            print(f"[L-BFGS] {res.nit} it, {res.nfev} evals | "
+                  f"loss {res.fun:.3e} | {time.time() - t1:.1f}s")
 
     if verbose:
         print(f"done in {time.time() - t0:.1f}s")

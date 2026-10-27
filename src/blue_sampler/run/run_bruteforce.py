@@ -76,13 +76,14 @@ def _bruteforce_pipeline(
     steps = jnp.array([0.4, 0.7, 1.0, 1.3, 1.6])
     sample_size = min(N, 100)
 
+    gradnorm = jnp.linalg.norm(grad(jnp.asarray(np.random.rand(N, D))), axis=-1).mean()
+
     @jax.jit
     def _run(x, idxs):
         def step(it, state):
             x, lr = state
 
             gradx = grad(x)
-            gradnorm = jnp.linalg.norm(gradx, axis=-1).mean()
 
             candidates = jax.vmap(
                 lambda step: torus_wrap(
@@ -121,8 +122,7 @@ def _bruteforce_pipeline(
                 x, lr = state
 
                 gradx = grad(x)
-                gradnorm = jnp.linalg.norm(gradx, axis=-1).mean()
-
+            
                 candidates = jax.vmap(
                     lambda step: torus_wrap(
                         x - step * lr * gradx / gradnorm

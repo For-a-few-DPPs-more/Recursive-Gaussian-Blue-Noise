@@ -60,7 +60,7 @@ import heapq
 import numpy as np
 
 
-CHI = 0.5
+CHI = 0.43
 EPSILON = 1e-12
 INV_TWO_PI_SQUARED = 1.0 / (2.0 * pi * pi)
 ZERO_FREQUENCY_WEIGHT = 4.0 / 3.0
@@ -289,6 +289,11 @@ def _half_l1_ball(D, radius):
         [previous_half, np.zeros((len(previous_half), 1), dtype=np.int32)], 1)
     return np.concatenate([positive_part, zero_part], 0)
 
+def delete_last_incomplete_orbit(K, W, epsilon=1e-10):
+    order = np.argsort(-W)
+    W_sorted = W[order]
+    n = np.sum(np.abs(W_sorted - W_sorted[-1]) < epsilon)
+    return K[order[:-n]], len(K) - n
 
 def get_wave_vectors(
     N: int,
@@ -301,7 +306,8 @@ def get_wave_vectors(
     if mode == "l2":
         from blue_sampler.run.run_nufft_helpers import get_wave_vectors as gwv_l2
         WV = gwv_l2(N, D, chi, rng)
-        return WV.k, WV.w.astype(np.float64), WV.M
+        K, M = delete_last_incomplete_orbit(WV.k, WV.w)
+        return K, M
 
     rng = np.random.default_rng() if rng is None else rng
     M_target = _n_modes_target(N, D, chi)
@@ -332,4 +338,5 @@ def get_wave_vectors(
     else:
         raise ValueError(f"Unknown mode '{mode}'. Choose 'wd' or 'l1'.")
     K = np.ascontiguousarray(K.astype(np.int32))
-    return K, weights.astype(np.float64), len(K)
+    K, M = delete_last_incomplete_orbit(K, weights)
+    return K, M

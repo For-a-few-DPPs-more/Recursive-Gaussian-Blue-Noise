@@ -38,4 +38,4 @@ def plot_structure_factor(*args, **kwargs):
     return _psf(*args, **kwargs)
 
 __all__ = ["sample_l1", "sample_l2", "sample_wd", "plot", "plot_structure_factor"]
-__version__ = "1.0.5"
+__version__ = "2.0.2"
