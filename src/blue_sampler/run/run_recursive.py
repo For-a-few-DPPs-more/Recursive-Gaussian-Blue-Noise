@@ -41,7 +41,6 @@ _PRESETS = {
 
 # N below which we skip the grid pipeline and go straight to the brute-force solver
 _BRUTE_THRESHOLDS = {2: 1_000, 3: 2_000, 4: 3_000, 5: 4_000}
-_BRUTE_ITER = 60       # iterations of the brute-force solver
 _ROOT_N_ITER = 20      # iterations at the root of the recursion
 
 
@@ -242,7 +241,7 @@ def _recursive_pipeline(
             """Brute-force solver for small N, grid descent otherwise."""
             ctx.start()
             if bruteforce:
-                x_pts = _bruteforce_pipeline(N, D, _BRUTE_ITER, ctx=ctx, target=target)(x_init)
+                x_pts = _bruteforce_pipeline(N, D, n_iter = None, ctx=ctx, target=target)(x_init)
                 return prepare_points(np.asarray(x_pts), N, IJK, D) if is_root else x_pts
             return run_iters(prepare_points(np.asarray(x_init), N, IJK, D))
 

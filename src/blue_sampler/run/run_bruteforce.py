@@ -1,175 +1,153 @@
 """
-blue noise sampling solver.
-samples random hyperuniform (= sub-poisson density flucation) point clouds (N, D)
-hyperuniformity is achieved through standard gradient descent on energy kernels
+Blue noise sampling solver.
+
+Samples random hyperuniform (= sub-Poisson density fluctuation) point clouds
+of shape (N, D). Hyperuniformity is achieved through gradient descent on
+interaction kernels.
 """
 
-
 from __future__ import annotations
+
+import time
 
 import numpy as np
 import jax
 import jax.numpy as jnp
-import time
+
 from ..math import torus_wrap
-
-from ..grad.kernels import gauss_kernel, gauss_sin_kernel
 from ..grad.fields import make_target
-
 from ..progress import _LevelCtx
 
-# ── Bruteforce (small N) ──────────────────────────────────────────────────────
+
+LEARNING_RATE = {2: 0.3, 3: 0.1, 4: 0.05, 5: 0.01}
+
+
+def gauss_kernel(x, y, sigma2):
+    """Gaussian interaction kernel with minimum-image distances on the torus.
+
+    Args:
+        x: Array of shape (N, 1, D).
+        y: Array of shape (1, M, D).
+        sigma2: Squared Gaussian bandwidth (σ²).
+
+    Returns:
+        Array of shape (N, D), containing summed interaction forces.
+    """
+    delta = x - y
+    delta = delta - jnp.round(delta)          # minimum image
+
+    dist2 = jnp.sum(delta**2, axis=-1, keepdims=True)
+    weights = jnp.exp(-dist2 / (2.0 * sigma2))
+
+    return jnp.sum(delta * weights, axis=1)
+
+
+def gauss_sin_kernel(x, y, sigma2):
+    """Periodic Gaussian interaction kernel (sinusoidal).
+
+    Args:
+        x: Array of shape (N, 1, D).
+        y: Array of shape (1, M, D).
+        sigma2: Squared bandwidth (σ²).
+
+    Returns:
+        Array of shape (N, D), containing summed interaction forces.
+    """
+    delta = x - y
+    sin_pi = jnp.sin(jnp.pi * delta)
+    s2 = jnp.sum(sin_pi**2, axis=-1, keepdims=True) / (2.0 * jnp.pi**2 * sigma2)
+
+    weights = jnp.exp(-s2)
+    force = jnp.sin(2.0 * jnp.pi * delta)
+
+    return jnp.sum(force * weights, axis=1) / (2.0 * jnp.pi)
+
+
+def _default_steps(N: int, D: int) -> int:
+    if D == 2:
+        return max(20, N // 4)
+    if D == 3:
+        return max(20, N // 100)
+    return 20
+
 
 def _bruteforce_pipeline(
     N: int,
     D: int,
-    n_iter: int = 60,
+    n_iter: int | None = None,
     lr: float = 1.0,
     ctx: _LevelCtx | None = None,
     target=None,
+    s: float = 1.0,
 ):
-    """bruteforce (complexity O(N2)) gradient-descent sampler for N ≤ ~3 000 points.
-    ctx is an optional logger for printing algorithm progress
+    """Brute-force O(N²) gradient-descent sampler for moderate N.
 
-    target : ndarray of shape (K, D), or "anything.jpg" optional
-        Atoms describing a target density. When given, an extra gradient
-        term (built from `fields.make_multi_scales_field_fun`) is added to
-        make the density of the sample match the target distribution
+    Args:
+        N: Number of sample points.
+        D: Spatial dimension.
+        n_iter: Number of iterations; defaults to _default_steps(N, D).
+        lr: Learning-rate multiplier.
+        ctx: Optional progress logger.
+        target: Optional target density (points of shape (K, D) or image path).
+        s: Interaction length-scale multiplier.
+
+    Returns:
+        A function sample_fn(init=None) that returns an array of shape (N, D).
     """
-    DX     = N ** (-1.0 / D)
-    sigma2 = 2.0 * DX ** 2
-    high_D = sigma2 >= 0.03
+    DX = N ** (-1.0 / D)              
+    sigma = s * DX
+    sigma2 = sigma ** 2               
 
-    lr    = 0.03 * DX * lr
-    scale = {2: 240, 3: 6000, 4: 60_000}.get(D, 100_000)
-    Niter = max(40, int(n_iter * N / scale))
+    Niter = _default_steps(N, D) if n_iter is None else n_iter
+    base_coef = LEARNING_RATE.get(D, 0.001) / s**2
+    coef = lr * base_coef
 
-    if high_D:
-        a = 2.0 * np.pi
-        b = 4.0 / (sigma2 * a ** 2)
-        c = 1.0 / (2.0 * np.pi)
-        kernel = lambda x, y: gauss_sin_kernel(x, y, a, b, c)
-    else:
+    target_lr = 0.03 * DX * lr
+
+    if sigma < 0.1:
         kernel = lambda x, y: gauss_kernel(x, y, sigma2)
-
-    target_grad =  make_target(target, sigma2, D)
-    target_lr = lr
-
-
-    if target is not None:
-        def target_grad_idx(x, idx):
-            return target_grad(x)[idx]
     else:
-        def target_grad_idx(x, idx):
-            return 0.0
+        kernel = lambda x, y: gauss_sin_kernel(x, y, sigma2)
 
-    def grad(x):
-        g = jax.vmap(lambda xi: kernel(xi[None], x).sum(axis=0))(x)
-        g = g + target_lr * target_grad(x)
-        return g
+    target_grad = make_target(target, sigma2, D)
 
-    def grad_idx(x, idx):
-        g = jax.vmap(lambda xi: kernel(xi[None], x).sum(axis=0))(x[idx])
-        g = g + target_lr * target_grad_idx(x, idx)
-        return g
+    def force(x):
+        g = kernel(x[:, None, :], x[None, :, :])  
+        return g + target_lr * target_grad(x)
 
-    steps = jnp.array([0.4, 0.7, 1.0, 1.3, 1.6])
-    sample_size = min(N, 100)
+    def step(x):
+        return torus_wrap(x + coef * force(x))
 
-    gradnorm = jnp.linalg.norm(grad(jnp.asarray(np.random.rand(N, D))), axis=-1).mean()
+    one_step = jax.jit(step)
 
     @jax.jit
-    def _run(x, idxs):
-        def step(it, state):
-            x, lr = state
+    def _run(x):
+        return jax.lax.fori_loop(0, Niter, lambda _, x: step(x), x)
 
-            gradx = grad(x)
-
-            candidates = jax.vmap(
-                lambda step: torus_wrap(
-                    x - step * lr * gradx / gradnorm
-                )
-            )(steps)
-
-            idx = idxs[it]
-
-            scores = jax.vmap(
-                lambda candidate: (grad_idx(candidate, idx) ** 2).sum()
-            )(candidates)
-
-            best = jnp.argmin(scores)
-            lr = lr * steps[best]
-            x = candidates[best]
-
-            return x, lr
-
-        return jax.lax.fori_loop(0, Niter, step, (x, lr))[0]
-    
     def eta():
-        """
-        estimate remaining time (optional)
-        """
-        idxs = np.stack([
-            np.arange(N)
-            if sample_size == N
-            else np.random.choice(N, sample_size, replace=False)
-            for _ in range(Niter)
-        ])
-
-        @jax.jit
-        def one_step(x, idxs):
-            def step(_, state):
-                x, lr = state
-
-                gradx = grad(x)
-            
-                candidates = jax.vmap(
-                    lambda step: torus_wrap(
-                        x - step * lr * gradx / gradnorm
-                    )
-                )(steps)
-
-                idx = idxs[0]
-
-                scores = jax.vmap(
-                    lambda candidate: (grad_idx(candidate, idx) ** 2).sum()
-                )(candidates)
-
-                best = jnp.argmin(scores)
-
-                return candidates[best], lr * steps[best]
-
-            return jax.lax.fori_loop(0, 1, step, (x, lr))[0]
-
-        x = one_step(np.random.rand(N, D), jnp.asarray(idxs))
-        x.block_until_ready()
+        x = jnp.asarray(np.random.rand(N, D), dtype=jnp.float32)
+        one_step(x).block_until_ready()          # warm-up
         t0 = time.perf_counter()
-        x = one_step(x, jnp.asarray(idxs))
-        x.block_until_ready()
-        elapsed = time.perf_counter() - t0
-
-        eta_seconds = elapsed * Niter
-        return eta_seconds
-
-
+        one_step(x).block_until_ready()
+        return (time.perf_counter() - t0) * Niter
 
     def sample_fn(init: np.ndarray | None = None) -> jnp.ndarray:
         if ctx is not None:
-            ctx.on_bruteforce_start(eta_seconds = eta())
+            ctx.on_bruteforce_start(eta_seconds=eta())
+
         if init is None:
             init = np.random.rand(N, D)
 
-        idxs = np.stack([
-            np.arange(N)
-            if sample_size == N
-            else np.random.choice(N, sample_size, replace=False)
-            for _ in range(Niter)
-        ])
+        init = np.asarray(init, dtype=np.float32)
+        if init.shape != (N, D):
+            raise ValueError(f"init must have shape {(N, D)}, got {init.shape}")
 
-        out = _run(jnp.asarray(init), jnp.asarray(idxs))
+        out = _run(jnp.asarray(init, dtype=jnp.float32))
         out.block_until_ready()
+
         if ctx is not None:
             ctx.on_bruteforce_done()
+
         return out
 
     return sample_fn

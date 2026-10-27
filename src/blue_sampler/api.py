@@ -207,10 +207,10 @@ def sample_points(
     
     has_target = targets is not None
     if has_target:        
-        if method not in ["bruteforce","rgbn", "cstit", "nufft", "nufft+"]:
+        if method not in ["gaussian","rgbn", "cstit", "nufft", "nufft+"]:
             raise ValueError(
                 f"a target density was given but method {method} does not support "
-                "a custom target; use method='rgbn', 'bruteforce', 'nufft', or 'cstit' instead."
+                "a custom target; use method='rgbn', 'gaussian', 'nufft', or 'cstit' instead."
             )
         targets = assert_valid_target(targets, N, method = method)
         n_iter *= 2
@@ -264,14 +264,14 @@ def sample_points(
         if (targets is None) and (N >= 5_000) and KEOPS_AVAILABLE:
             try:
                 from .run.run_bruteforce_keops import make_pipeline
-                return make_pipeline(N, D, 10*n_iter, lr, verbose)(x)
+                return make_pipeline(N, D, None, lr, verbose)(x)
             except:
                 if verbose >= 1:
                     print("keops unavailable. default to slow kernel")
         ctx = logger.enter_level(N, D, 0)
         ctx.start()
         blue = _bruteforce_pipeline(
-            N, D, n_iter*10, ctx=ctx,
+            N, D, n_iter = None, ctx=ctx,
             lr=lr,
             target=targets,
         )

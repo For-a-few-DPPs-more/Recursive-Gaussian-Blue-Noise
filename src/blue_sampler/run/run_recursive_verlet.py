@@ -31,8 +31,7 @@ from .run_bruteforce import _bruteforce_pipeline
 
 from .run_recursive import (
     _make_micro_kernel, _make_macro_kernel, _brute_threshold,
-    _resolve, _BRUTE_ITER,
-    _ROOT_N_ITER,
+    _resolve, _ROOT_N_ITER,
 )
 
 
@@ -249,7 +248,7 @@ def _recursive_pipeline_verlet(
             return _as_np(out, D)                   # single jnp -> np conversion
 
         def run_bruteforce(x_init: np.ndarray) -> np.ndarray:
-            out = _bruteforce_pipeline(N, D, _BRUTE_ITER, ctx=ctx, target=target)(x_init)
+            out = _bruteforce_pipeline(N, D, n_iter = None, ctx=ctx, target=target)(x_init)
             return _as_np(out, D)
 
         # ── Cloning (coarse -> fine), numpy in / numpy out ────────────────────
