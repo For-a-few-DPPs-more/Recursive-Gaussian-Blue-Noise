@@ -4,11 +4,13 @@
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/For-a-few-DPPs-more/rgbn/blob/main/examples.ipynb)
 
 
-# blue-sampler / hyperuniform sampler
+# blue-sampler
 
 **Generate large hyperuniform point patterns** (i.e. blue noise) on the unit torus $[0, 1)^D$, uniformly or following a given target distribution. 
 
 Hyperuniform point patterns exhibit vanishing density fluctuations at low frequencies, making them particularly suited for **Monte Carlo** integration, **image stippling**, and any application requiring well-distributed, low-discrepancy points. 
+
+For the companion dataset of this repository, with pregenerated hyperuniform samples in various dimensions, see [hyperuniform-samplers](https://github.com/For-a-few-DPPs-more/hyperuniform-samplers)
 
 ---
 
@@ -158,7 +160,7 @@ The algorithms and mathematical tools implemented in **blue-sampler** are based 
   **Generation of Primordial Cosmological Perturbations from Statistical Mechanical Models.**  
   *Physical Review D*, **67**(4):043506, 2003.  
 
-- **SquareNet** [(v1.3.11). 2026](https://squarenet.readthedocs.io/en/latest/).  
+- [Gridpoints](https://github.com/Neighborhood-Grid/gridpoints).  
   Grid data structure for point clouds, codeveloped with RGBN \
   for efficient neighbor query and fourier trnasform in Python.
 
