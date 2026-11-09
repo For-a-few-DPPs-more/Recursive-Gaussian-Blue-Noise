@@ -83,7 +83,7 @@ x = blue.sample_points(N, D, method="rgbn") #(N, D)
 | ≥6D       | Experimental  |
 
 
-All presented samplers but the original GBN (quadratic complexity), having linear complexity in the number of points, are thus intended to scale up to million points beyond the minute (GPU) or 20 minutes (CPU).
+All presented samplers but the original GBN (quadratic complexity), having near linear complexity in the number of points, are thus intended to scale up to million points beyond the minute (GPU) or 20 minutes (CPU) in low dimension (<=3d). They all face increasing challenges when the dimension grow, whether it being the hyperuniformity strength or the required sampling runtime.
 The recommanded default is: 
  - dimension D = 1/2/3: `nufft`
  - dimension D = 4/5: `rgbn` or `gaussian` (depending on N + gpu availability)
