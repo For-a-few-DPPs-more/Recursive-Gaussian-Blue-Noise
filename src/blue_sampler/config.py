@@ -19,10 +19,8 @@ class SamplePointsConfig:
     """Routing rules of `sample_points`."""
     bruteforce_max_n: int = 1_000          # N <= this: exact gaussian solver, whatever the method
     keops_min_n: int = 5_000               # KeOps kernels are only worth it above this N
-    warmstart_lr_factor: float = 0.5       # a warm start is already good: smaller steps...
-    warmstart_iter_factor: int = 2         # ... but more of them
     target_iter_factor: int = 2            # a target (nufft, cstit) needs more iterations
-    image_oversample: dict = field(default_factory=lambda: {"cstit": 32, "nufft": 128, "nufft+": 128})
+    image_oversample: dict = field(default_factory=lambda: {"cstit": 32})
 
 
 @dataclass(frozen=True)
@@ -69,6 +67,7 @@ class RGBNConfig:
 class NufftConfig:
     """Spectral optimisation of the structure factor."""
     chi: dict = field(default_factory=lambda: {"nufft": 0.35, "nufft+": 0.43})
+    newton_finition: dict = field(default_factory= lambda: {"nufft": False, "nufft+": True})
     iter_factor: dict = field(default_factory=lambda: {"nufft": 20, "nufft+": 80})
     iter_factor_high_d: int = 10           # D > 3 converges faster
     max_dim: int = 3                       # finufft supports D <= 3; brute-force kernels above
@@ -77,7 +76,6 @@ class NufftConfig:
     step_increase: float = 1.05            # "bold driver" adaptive step
     step_decrease: float = 0.8
     fast_stippling: dict = field(default_factory=lambda: {"chi": 1.0, "n_iter": 40, "lr": 3.0})
-
 
 @dataclass(frozen=True)
 class CstitConfig:

@@ -30,10 +30,15 @@ def load_image(path: str, shape=CFG.image_shape, invert: bool = True) -> np.ndar
 
 
 def image_spectrum(path: str, shape, invert: bool = True) -> np.ndarray:
-    """Fourier coefficients sum_n rho[n] exp(+2i pi k.n / G) on `shape`, FFT ordering
-    (the finufft convention isign=+1, modeord=1)."""
-    rho = load_image(path, shape, invert)
-    return np.fft.ifftn(rho) * rho.size
+    """Fourier coefficients sum_n rho[n] exp(+2i pi k.n / S) of the image at full resolution S,
+    for the modes of the (G, G) grid `shape`, FFT ordering (finufft convention isign=+1, modeord=1).
+    No resampling to G: the low modes are read from the FFT of the S x S image (S >= 2G)."""
+    G = shape[0]
+    S = max(CFG.image_shape[0], 2 * G)
+    rho = load_image(path, (S, S), invert)
+    full = np.fft.ifftn(rho) * rho.size
+    k = np.fft.fftfreq(G, d=1.0 / G).astype(np.int64) % S     # modes of the G grid, indices in the S grid
+    return full[np.ix_(k, k)]
 
 
 def _blur(img: np.ndarray, sigma: float) -> np.ndarray:

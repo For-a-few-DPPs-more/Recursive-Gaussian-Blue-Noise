@@ -11,6 +11,8 @@ Three interchangeable models evaluate (L, grad L):
 - "jax":     dense sums over the selected modes, O(N M), any D
 - "keops":   same with KeOps reductions (no N x M matrix in memory), any D
 The steps are RMS-normalised and their length adapted by a "bold driver" rule.
+With newton_finition=True, the second half of the n_iter budget is spent on an L-BFGS
+(scipy L-BFGS-B) descent started from the gradient-descent result.
 """
 from __future__ import annotations
 
@@ -25,6 +27,10 @@ from ..lattice import lowest_modes
 from ..progress import Progress, log
 
 CFG = config.NUFFT
+
+# L-BFGS finish (same settings as qmc_sampler): history size, max evaluations per iteration
+LBFGS_MEMORY = 30
+LBFGS_MAXFUN_FACTOR = 10
 
 
 class FinufftModel:
@@ -184,13 +190,15 @@ def pick_model(N: int, D: int) -> str:
 
 def nufft(N: int = 10_000, D: int = 2, *, n_iter: int = 120, chi: float = 0.4, lr: float = 1.0,
           init=None, target=None, precision: str = "float32", device: str = "auto",
-          seed: int | None = None, model: str = "auto", verbose: int = 1) -> np.ndarray:
+          seed: int | None = None, model: str = "auto", newton_finition: bool = False,
+          verbose: int = 1) -> np.ndarray:
     """
     N points in [0, 1)^D minimising the low-frequency structure factor (see module docstring).
 
     init: starting points (N, D), uniform random otherwise.
     target: point cloud (K, D), or an image path ("finufft" model only). None: uniform.
     model: "finufft", "jax", "keops" or "auto". Ctrl-C stops early and returns the current points.
+    newton_finition: spend the second half of n_iter on an L-BFGS descent (quasi-Newton finish).
     """
     model = pick_model(N, D) if model == "auto" else model
     if model == "finufft" and D > CFG.max_dim:
@@ -218,11 +226,13 @@ def nufft(N: int = 10_000, D: int = 2, *, n_iter: int = 120, chi: float = 0.4, l
         log("  dense O(N M) model: fine for N <= 2k-4k on CPU, 10k-20k on GPU", verbose)
 
     x = m.asarray(x)
+    n_lbfgs = n_iter // 2 if newton_finition else 0
     step = lr * CFG.initial_step * N ** (-1.0 / D)
-    best = float("inf")
+    best = loss = float("inf")
     bar = Progress("[nufft]", total=n_iter, verbose=verbose)
+    state = {}                                              # last L-BFGS iterate, kept for Ctrl-C
     try:
-        for _ in range(n_iter):
+        for _ in range(n_iter - n_lbfgs):
             loss, grad = m.loss_and_grad(x, fk_target)
             x = wrap(x - grad / ((grad * grad).mean() + 1e-30) ** 0.5 * step)
             if loss < best:
@@ -230,7 +240,33 @@ def nufft(N: int = 10_000, D: int = 2, *, n_iter: int = 120, chi: float = 0.4, l
             else:
                 step *= CFG.step_decrease
             bar.tick(f"loss {loss:.1e}")
+        if n_lbfgs:
+            x = _lbfgs(m, x, fk_target, n_lbfgs, loss, bar, state)
     except KeyboardInterrupt:
         log(f"\n[nufft] interrupted after {bar.count} iterations", verbose)
+        x = state.get("x", x)
     bar.done()
     return m.to_numpy(x)
+
+
+def _lbfgs(m, x, fk_target, n_iter, loss0, bar, state):
+    """L-BFGS-B (scipy) from x, the loss rescaled by its starting value (settings of qmc_sampler)."""
+    from scipy.optimize import minimize
+
+    N, D = x.shape
+    scale = loss0 if np.isfinite(loss0) and loss0 > 0 else 1.0
+
+    def fun(flat):
+        loss, grad = m.loss_and_grad(wrap(m.asarray(flat.reshape(N, D))), fk_target)
+        state["loss"] = loss
+        return loss / scale, np.asarray(m.to_numpy(grad), dtype=np.float64).ravel() / scale
+
+    def callback(xk):
+        state["x"] = wrap(m.asarray(xk.reshape(N, D)))
+        bar.tick(f"loss {state['loss']:.1e} (L-BFGS)")
+
+    res = minimize(fun, np.asarray(m.to_numpy(x), dtype=np.float64).ravel(), jac=True,
+                   method="L-BFGS-B", callback=callback,
+                   options={"maxiter": n_iter, "maxcor": LBFGS_MEMORY,
+                            "maxfun": LBFGS_MAXFUN_FACTOR * n_iter, "ftol": 0.0, "gtol": 0.0})
+    return wrap(m.asarray(res.x.reshape(N, D)))

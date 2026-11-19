@@ -4,8 +4,6 @@ Public API.
 Points      sample_points, image_to_points, tile, warmstart_points, sobol
 Partitions  sample_tessels, sample_clusters, tessels_to_points, clusters_to_points, image_to_quads
 Pinwheel    pinwheel_base, pinwheel_transform
-
-Adaptive Gaussian blue noise (image stippling) lives in `blue_sampler.adaptive`.
 """
 from __future__ import annotations
 

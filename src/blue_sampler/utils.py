@@ -17,10 +17,11 @@ from .solvers.clusters import cstit
 from .solvers.nufft import nufft
 from .solvers.rgbn import rgbn
 from .warmstart import jittered_lattice, warmstart_points
+from .adaptive.rgbn import adaptive_gbn, adaptive_rgbn
 
 CFG = config.SAMPLE_POINTS
 METHODS = ("rgbn", "gaussian", "nufft", "nufft+", "latjit", "cstit")
-TARGET_METHODS = ("nufft", "nufft+", "cstit")
+TARGET_METHODS = ("rgbn", "gaussian", "nufft", "nufft+", "cstit")
 
 
 # ── sample_points ─────────────────────────────────────────────────────────────
@@ -33,6 +34,8 @@ def check_target(target, N: int, method: str, tol: float = 1e-5):
     if isinstance(target, str):
         if not Path(target).is_file():
             raise FileNotFoundError(f"target image not found: {target!r}")
+        if method in ("nufft", "nufft+"):
+            return target                  # nufft uses the image's FFT directly
         return image_atoms(target, N, oversample=CFG.image_oversample[method])
     target = np.asarray(target)
     lo, hi = target.min(), target.max()
@@ -47,7 +50,11 @@ def sample(N, D, lr, method, warmstart, n_iter_scale, target, verbose):
     if method not in METHODS:
         raise ValueError(f"unknown method {method!r}, must be one of {METHODS}")
     n_iter = n_iter_scale
+    
     if target is not None:
+        if method in ("gaussian", "rgbn"):
+            adaptive = adaptive_rgbn if method == "rgbn" else adaptive_gbn
+            return adaptive(target, N)
         target = check_target(target, N, method)
         n_iter *= CFG.target_iter_factor
 
@@ -60,14 +67,14 @@ def sample(N, D, lr, method, warmstart, n_iter_scale, target, verbose):
 
     x = None
     if warmstart is not None:
-        lr *= CFG.warmstart_lr_factor
-        n_iter *= CFG.warmstart_iter_factor
         x = warmstart_points(N, D, warmstart)
 
     if method in ("nufft", "nufft+"):
         factor = config.NUFFT.iter_factor[method] if D <= config.NUFFT.max_dim else config.NUFFT.iter_factor_high_d
-        return nufft(N, D, n_iter=factor * n_iter, chi=config.NUFFT.chi[method], lr=lr, init=x,
-                     target=target, verbose=verbose)
+        chi =config.NUFFT.chi[method]
+        newton_finition = config.NUFFT.newton_finition[method]
+        return nufft(N, D, n_iter=factor * n_iter, chi=chi, lr=lr, init=x,
+                     target=target, verbose=verbose, newton_finition = newton_finition)
 
     log(f"✦ {D}D blue-noise pipeline — sampling {N:,} points", verbose)
     if n_iter == 0:
