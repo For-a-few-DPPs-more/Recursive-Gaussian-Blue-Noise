@@ -2,7 +2,7 @@
 
 **Quasi-Monte Carlo point sampling from spectral optimisation.**
 
-`qmc-sampler` is a lightweight wrapper around [`blue_sampler`](https://github.com/For-a-few-DPPs-more/hyperuniform-samplers) that provides several sampling methods for generating quasi-Monte Carlo (QMC) point sets, by minimising the spectral loss over all wave vectors within an exclusion region. 3 kinds of exclusion regions, with different geometrical shape, are available: l2, l1, wd.
+`qmc-sampler` is a lightweight, standalone package (numpy, scipy, matplotlib, pykeops; optionally torch or finufft) that provides several sampling methods for generating quasi-Monte Carlo (QMC) point sets, by minimising the spectral loss over all wave vectors within an exclusion region. 3 kinds of exclusion regions, with different geometrical shape, are available: l2, l1, wd.
 
 ## Installation
 
@@ -38,29 +38,40 @@ points_wd = sample_wd(N, D)
 
 Additional keyword arguments e.g. "Chi = 0.4" can be passed to the sampling functions and forwarded to the underlying implementation.
 
-## Accelerated L2 sampling with FINUFFT
+## Backends (KeOps, torch, FINUFFT)
 
-For supported 2D and 3D problems, `blue_sampler` provides an accelerated NUFFT-based implementation that can reduce the computational complexity from approximately O(N^2) to O(N\log N).
-
-This backend requires a compatible GPU environment and additional dependencies. Install the appropriate extras supported by your version of `blue_sampler`, for example:
+All heavy computations go through one of three backends, which the user can controll.
+e.g., to use the finufft backend in 2D and 3D:
 
 ```bash
-pip install "blue-sampler[gpu13]"
+pip install finufft          # or: pip install "qmc-sampler[finufft]"
 ```
-
-To use the accelerated backend, overwright the default `sample_l2` implementation with:
 
 ```python
-def sample_l2(N, D, **kwargs):
-    from blue_sampler.run.run_nufft import _nufft_pipeline
+import qmc_sampler
 
-    kwargs.setdefault("verbose", 0)
-    return _nufft_pipeline(N, D, **kwargs)
+qmc_sampler.select_backend(dimensions={2, 3}, backend="finufft")
 ```
+
+| backend     | method                           | complexity          | dimensions | accuracy                                   |
+|-------------|----------------------------------|---------------------|------------|--------------------------------------------|
+| `"keops"`   | direct sums, pykeops (GPU if available) | O(N M)       | any        | exact up to machine precision              |
+| `"torch"`   | direct sums, torch (cuda if available)  | O(N M)       | any        | exact up to machine precision              |
+| `"finufft"` | non-uniform FFT                  | O(N log N + M)      | D <= 3     | relative tolerance 1e-4 (float32), 1e-8 (float64) |
+
+Here `M` is the number of wave vectors, which grows like `N`.
+
+**By default, FINUFFT is not enabled**: the backend is `"keops"` if pykeops is available, otherwise
+`"torch"`, and `"finufft"` only if neither is installed. This guarantees that, unless you ask
+otherwise, every Fourier sum is computed exactly, up to machine precision.
+
+**FINUFFT is nevertheless strongly recommended in 2D and 3D**: it reduces the cost of each
+iteration from O(N^2) to O(N log N), which typically makes sampling one to several orders of
+magnitude faster, and makes large `N` reachable. Enable it manually:
 
 ## Plotting utilities
 
-The package also exposes plotting functions from `blue_sampler`:
+The package also exposes plotting functions (adapted from `blue_sampler`):
 
 ```python
 from qmc_sampler import plot, plot_structure_factor
@@ -69,7 +80,7 @@ plot(...)
 plot_structure_factor(...)
 ```
 
-Refer to the upstream documentation for the accepted arguments.
+Like the samplers, `plot_structure_factor` uses the backend selected for the dimension of the points (see above).
 
 ## Links
 

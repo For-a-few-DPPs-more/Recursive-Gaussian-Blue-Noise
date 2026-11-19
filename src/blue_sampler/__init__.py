@@ -2,8 +2,8 @@
 blue_sampler
 ============
 
-Generate stealthy point patterns — low-discrepancy, spectrally isotropic
-samples on the unit torus [0, 1)^D.
+Stealthy point patterns: low-discrepancy, spectrally isotropic samples on the
+unit torus [0, 1)^D.
 
 Quick start
 -----------
@@ -11,12 +11,24 @@ Quick start
 >>> x = blue.sample_points(N=10_000, D=2)   # (10000, 2) array
 >>> blue.plot(x)
 >>> blue.plot_structure_factor(x)
+
+Package layout
+--------------
+api               public sampling functions
+utils             helpers of api (checks, routing to the solvers)
+config            every tunable constant
+solvers/          bruteforce, rgbn, nufft, tessels, clusters (cstit)
+adaptive/         adaptive gaussian blue noise (image stippling), 2D jax, standalone
+moments/          moment matching (cells -> representative points)
+lattice/          integer balls, Fourier modes, Korobov lattices
+array_lib/        numpy / cupy / jax / KeOps primitives
+progress          console output
 """
 from .api import (
-    im2points,
-    im2quads,
-    tessel2points,
-    cluster2points,
+    image_to_points,
+    image_to_quads,
+    tessels_to_points,
+    clusters_to_points,
     sample_points,
     sample_tessels,
     sample_clusters,
@@ -27,32 +39,17 @@ from .api import (
     warmstart_points,
 )
 from .viz import plot, plot_structure_factor, plot_tessels, plot_clusters, plot_polygons
-from .structurefactor import structure_factor, structure_factor_and_average
+from .structure_factor import structure_factor, structure_factor_and_average
 from .datasets import generate_dataset
-from .gpu_setup import check_gpu
+from .diagnostics import check_gpu
 
 __all__ = [
-    "im2points",
-    "im2quads",
-    "tessel2points",
-    "cluster2points",
-    "sample_points",
-    "sample_tessels",
-    "sample_clusters",
-    "sobol",
-    "pinwheel_base",
-    "pinwheel_transform",
-    "structure_factor",
-    "structure_factor_and_average",
-    "generate_dataset",
-    "plot",
-    "plot_structure_factor",
-    "plot_tessels",
-    "plot_clusters",
-    "plot_polygons",
-    "tile",
-    "warmstart_points",
+    "image_to_points", "image_to_quads", "tessels_to_points", "clusters_to_points",
+    "sample_points", "sample_tessels", "sample_clusters", "sobol",
+    "pinwheel_base", "pinwheel_transform", "tile", "warmstart_points",
+    "structure_factor", "structure_factor_and_average", "generate_dataset",
+    "plot", "plot_structure_factor", "plot_tessels", "plot_clusters", "plot_polygons",
     "check_gpu",
 ]
 
-__version__ = "3.1.7"
+__version__ = "4.0.0"

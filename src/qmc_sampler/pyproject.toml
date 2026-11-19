@@ -5,8 +5,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "qmc-sampler"
-version = "2.0.2"
-description = "QMC sampling methods based on blue_sampler"
+version = "3.0.0"
+description = "QMC point sets by spectral optimisation (L2, L1 and WD exclusion regions)"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.9"
@@ -21,9 +21,15 @@ keywords = [
 ]
 
 dependencies = [
-    "blue-sampler[keops]",
+    "numpy",
     "scipy",
+    "matplotlib",
+    "pykeops",
 ]
+
+[project.optional-dependencies]
+finufft = ["finufft"]
+torch = ["torch"]
 
 [project.urls]
 Repository = "https://github.com/For-a-few-DPPs-more/hyperuniform-samplers"

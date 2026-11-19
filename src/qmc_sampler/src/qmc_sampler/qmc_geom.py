@@ -59,6 +59,8 @@ import heapq
 
 import numpy as np
 
+from ._lattice import lowest_modes
+
 
 CHI = 0.43
 EPSILON = 1e-12
@@ -304,10 +306,8 @@ def get_wave_vectors(
     epsilon: float = EPSILON,
 ):
     if mode == "l2":
-        from blue_sampler.run.run_nufft_helpers import get_wave_vectors as gwv_l2
-        WV = gwv_l2(N, D, chi, rng)
-        K, M = delete_last_incomplete_orbit(WV.k, WV.w)
-        return K, M
+        K, w = lowest_modes(N, D, chi, rng)
+        return delete_last_incomplete_orbit(K, w)
 
     rng = np.random.default_rng() if rng is None else rng
     M_target = _n_modes_target(N, D, chi)

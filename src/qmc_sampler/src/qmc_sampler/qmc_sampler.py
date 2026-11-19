@@ -2,7 +2,7 @@
 see https://github.com/For-a-few-DPPs-more/Recursive-Gaussian-Blue-Noise/blob/main/src/blue_sampler/run/run_nufft.py:
 same but:
   - L1 ball or wd ball instead of only L2 ball
-  - keops backend instead of finufft
+  - keops / torch backends (exact direct sums), finufft optional in D <= 3
   - quasi newton finition (optional)
 """
 
@@ -14,33 +14,8 @@ from typing import Optional
 
 import numpy as np
 
+from qmc_sampler._backend import get_backend, nudft1, nudft2_real
 from qmc_sampler.qmc_geom import CHI, get_wave_vectors
-
-
-try:
-    from pykeops.numpy import LazyTensor
-
-    def to_numpy(x):
-        return np.asarray(x)
-
-except ImportError:
-    import torch
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    def LazyTensor(x):
-        return torch.as_tensor(x, dtype=torch.float32, device=device)
-
-    def to_numpy(x):
-        if isinstance(x, torch.Tensor):
-            return x.detach().cpu().numpy()
-        return np.asarray(x)
-
-def sum0(x):
-    return to_numpy(x.sum(0))
-
-def sum1(x):
-    return to_numpy(x.sum(1))
 
 # ------------------------------------------------------------------
 # Global defaults
@@ -71,7 +46,7 @@ def sample_wd(N, D, **kwargs):
     return sample(N, D, "wd", **kwargs)
 
 # ------------------------------------------------------------------
-# Main KeOps optimisation pipeline
+# Main optimisation pipeline (backend: see qmc_sampler.select_backend)
 # ------------------------------------------------------------------
 def sample(
     N,
@@ -114,30 +89,27 @@ def sample(
 
     K, M = get_wave_vectors(N, D, mode=mode, chi=Chi, rng=rng)
     w = (1/(K*K + EPSILON).sum(axis = -1))
-    k_coords = np.ascontiguousarray(K.astype(real_dtype))
     norm = float(max(M, 1))
 
-    # optional target spectrum
+    backend = get_backend(D)
+    K_int = np.asarray(K)
+    K_real = K_int.astype(real_dtype)
+
+    # optional target spectrum: f_target(k) = (1/Nt) sum_j exp(-2i pi k.y_j)
     if target is not None:
-        tx = LazyTensor(target[:, None, :])
-        tk = LazyTensor(k_coords[None, :, :])
-        phase = two_pi * (tx * tk).sum(-1)
-        tr = np.asarray(sum0(phase.cos())).ravel()
-        ti = -np.asarray(sum0(phase.sin())).ravel()
-        fk_target = ((tr + 1j * ti) / target.shape[0]).astype(complex_dtype)
+        tgt = np.asarray(target, dtype=real_dtype)
+        fk_target = (nudft1(tgt, None, K_int, isign=-1, backend=backend)
+                     / tgt.shape[0]).astype(complex_dtype)
     else:
         fk_target = np.zeros(M, dtype=complex_dtype)
 
-    fk_tr = np.ascontiguousarray(fk_target.real.astype(real_dtype))
-    fk_ti = np.ascontiguousarray(fk_target.imag.astype(real_dtype))
-    k_j   = LazyTensor(k_coords[None, :, :])
+    fk_tr = fk_target.real.astype(real_dtype)
+    fk_ti = fk_target.imag.astype(real_dtype)
 
     def fourier_modes(pts):
-        xi = LazyTensor(pts[:, None, :])
-        phase = two_pi * (xi * k_j).sum(-1)
-        fr = np.asarray(sum0(phase.cos())).ravel() / N
-        fi = -np.asarray(sum0(phase.sin())).ravel() / N
-        return fr.astype(real_dtype), fi.astype(real_dtype)
+        # f(k) = (1/N) sum_j exp(-2i pi k.x_j)
+        f = nudft1(pts, None, K_int, isign=-1, backend=backend) / N
+        return f.real.astype(real_dtype), f.imag.astype(real_dtype)
 
     def loss_and_grad(pts):
         fr, fi = fourier_modes(pts)
@@ -146,22 +118,19 @@ def sample(
         loss = float(np.sum(w * (dr ** 2 + di ** 2)) / norm)
 
         pref = 2.0 / norm * (-two_pi) / N
-        cr = np.ascontiguousarray((pref * w * dr).astype(real_dtype))
-        ci = np.ascontiguousarray((pref * w * di).astype(real_dtype))
-
-        xi  = LazyTensor(pts[:, None, :])
-        crj = LazyTensor(cr[None, :, None])
-        cij = LazyTensor(ci[None, :, None])
-        phase = two_pi * (xi * k_j).sum(-1, keepdim = True)
-        scalar = crj * phase.sin() + cij * phase.cos()
-        grad = sum1(scalar * k_j)
+        cr = pref * w * dr
+        ci = pref * w * di
+        # grad_j = sum_k k (cr_k sin(2 pi k.x_j) + ci_k cos(2 pi k.x_j))
+        #        = Re sum_k (ci_k - i cr_k) k exp(+2i pi k.x_j)
+        a = (ci - 1j * cr)[:, None] * K_real
+        grad = nudft2_real(pts, a, K_int, isign=1, backend=backend)
         return loss, np.asarray(grad).astype(real_dtype)
 
     adaptive = lr * 0.1 * N ** (-1.0 / D)
     prev_loss = np.inf
 
     if verbose:
-        print(f"[keops-{mode}] N={N}  D={D}  modes={M}  Chi={Chi:.3f}")
+        print(f"[{backend}-{mode}] N={N}  D={D}  modes={M}  Chi={Chi:.3f}")
 
     t0 = time.time()
     for it in range(n_iter):
