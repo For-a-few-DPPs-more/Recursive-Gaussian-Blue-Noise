@@ -1,9 +1,14 @@
 """
 Every tunable constant of the package, grouped by component.
 
-The values are module-level frozen dataclasses, e.g. ``config.RGBN.root_n_iter``.
-Per-dimension tables are indexed by D and clamped to their range by ``by_dim``.
+Changing a parameter
+--------------------
+Small exemple: tuning the RGBN learning rate in 2D:
+
+>>> import blue_sampler as blue
+>>> object.__setattr__(blue.config.RGBN.presets[2], "lr_spatial", 0.2)
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
