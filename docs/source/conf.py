@@ -10,7 +10,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 project = "blue-sampler"
 author = "Armand de Cacqueray"
 copyright = "2026, Armand de Cacqueray"
-release = "0.1.0"
+try:
+    from blue_sampler import __version__ as release
+except ImportError:
+    release = "4.0.0"
+version = release
 
 # -- General configuration ---------------------------------------------------
 
@@ -32,7 +36,7 @@ autosummary_generate = True
 # Sensible defaults for API docs
 autodoc_default_options = {
     "members": True,
-    "imported-members": True,
+    "imported-members": False,
     "undoc-members": False,
     "show-inheritance": True,
 }
@@ -48,4 +52,4 @@ napoleon_numpy_docstring = True
 # -- Options for HTML output -------------------------------------------------
 
 html_theme = "sphinx_rtd_theme"
-html_static_path = ["_static"]
+html_static_path = []

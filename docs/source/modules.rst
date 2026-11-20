@@ -1,7 +1,7 @@
-blue_sampler
-============
+API reference
+=============
 
 .. toctree::
-   :maxdepth: 6
+   :maxdepth: 2
 
    blue_sampler
