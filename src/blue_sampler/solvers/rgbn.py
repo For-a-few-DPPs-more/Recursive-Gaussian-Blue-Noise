@@ -20,8 +20,8 @@ import numpy as np
 from .. import config
 from ..array_lib import wrap
 from ..config import RGBNPresetConfig, by_dim
-from ..geometry import random_rotations, simplex
-from ..kernels import gaussian_force, periodic_gaussian_force
+from .geometry import random_rotations, simplex
+from .kernels import gaussian_force, periodic_gaussian_force
 from ..lattice import half_ball
 from ..progress import Progress, log
 from .bruteforce import bruteforce_sampler

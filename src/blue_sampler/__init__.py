@@ -15,40 +15,34 @@ Quick start
 Package layout
 --------------
 api               public sampling functions
-utils             helpers of api (checks, routing to the solvers)
+samplers          routing from api to the solvers for sampling
 config            every tunable constant
-solvers/          bruteforce, rgbn, nufft, tessels, clusters (cstit)
+structure_factor  structure factor estimation (trusted or tapered boundary)
+viz               plot, plot_structure_factor
+diagnostics       check_gpu: optional GPU stack
+warmstart         initial point clouds and cheap low-discrepancy samplers
+targets/          target densities (image path or point set) for every solver
+solvers/          bruteforce, rgbn, nufft, tessels, clusters (cstit), kernels, geometry
 adaptive/         adaptive gaussian blue noise (image stippling), 2D jax, standalone
 moments/          moment matching (cells -> representative points)
 lattice/          integer balls, Fourier modes, Korobov lattices
 array_lib/        numpy / cupy / jax / KeOps primitives
 progress          console output
+
+Extras
+------
+Tessellations, clusters, pinwheels and their plots, not imported by default:
+>>> from blue_sampler import extras
 """
-from .api import (
-    image_to_points,
-    image_to_quads,
-    tessels_to_points,
-    clusters_to_points,
-    sample_points,
-    sample_tessels,
-    sample_clusters,
-    sobol,
-    pinwheel_base,
-    pinwheel_transform,
-    tile,
-    warmstart_points,
-)
-from .viz import plot, plot_structure_factor, plot_tessels, plot_clusters, plot_polygons
+from .api import sample_points, image_to_points
+from .viz import plot, plot_structure_factor
 from .structure_factor import structure_factor, structure_factor_and_average
-from .datasets import generate_dataset
 from .diagnostics import check_gpu
 
 __all__ = [
-    "image_to_points", "image_to_quads", "tessels_to_points", "clusters_to_points",
-    "sample_points", "sample_tessels", "sample_clusters", "sobol",
-    "pinwheel_base", "pinwheel_transform", "tile", "warmstart_points",
-    "structure_factor", "structure_factor_and_average", "generate_dataset",
-    "plot", "plot_structure_factor", "plot_tessels", "plot_clusters", "plot_polygons",
+    "image_to_points", "sample_points",
+    "structure_factor", "structure_factor_and_average", 
+    "plot", "plot_structure_factor", 
     "check_gpu",
 ]
 

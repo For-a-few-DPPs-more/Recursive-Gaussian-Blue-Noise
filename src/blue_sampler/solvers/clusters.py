@@ -12,6 +12,7 @@ import numpy as np
 from .. import config
 from ..lattice import korobov_lattice
 from ..moments import fit_points, required_n
+from ..targets import as_target, for_cstit
 
 CFG = config.CSTIT
 
@@ -52,16 +53,15 @@ def clusterise(depth: int, D: int, atoms: np.ndarray | None = None,
 
 def cstit(N: int, D: int, target=None, n_iter: int = 24, lr: float = 1.0, verbose: int = 1) -> np.ndarray:
     """N points: fair clustering into cells, then moment matching (order 3) in each cell.
-    N must be a power of 2; target atoms (K, D), if given, must number a multiple of the cells."""
+    N must be a power of 2. target: image path, point set (K, D, a multiple of the number of
+    cells) or `targets.Target`, read as atoms by `targets.for_cstit`."""
     p = CFG.moment_order
     points_per_cell = 2 ** int(np.ceil(np.log2(required_n(p, D)) - 1e-6))
     depth = int(np.log2(N) + 1e-6) - int(np.log2(points_per_cell))
-    if target is not None:
-        target = np.asarray(target).reshape(-1, D)
-        if len(target) % 2 ** depth:
-            raise ValueError("cstit requires the number of targets to be a multiple of the "
-                             f"number of cells ({2 ** depth})")
-    cells = clusterise(depth, D, target, atoms_per_cluster=CFG.atoms_per_cluster)
+    target = None if target is None else as_target(target, D)
+    atoms = for_cstit(target, N, D, n_cells=2 ** depth)
+    cells = clusterise(depth, D, atoms, atoms_per_cluster=CFG.atoms_per_cluster)
     points = fit_points(cells, "clusters", p=p, n_iter=n_iter, n_points=points_per_cell,
                         lambda0=lr * CFG.lr_to_lambda, verbose=verbose)
-    return points.reshape(-1, D)
+    points = points.reshape(-1, D)
+    return points if target is None else target.from_unit(points)

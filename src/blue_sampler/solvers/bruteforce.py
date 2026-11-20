@@ -13,7 +13,7 @@ import numpy as np
 
 from .. import config
 from ..array_lib import KEOPS, keops_error, wrap
-from ..kernels import pick_force
+from .kernels import pick_force
 from ..progress import Progress, fmt_duration
 
 CFG = config.BRUTEFORCE

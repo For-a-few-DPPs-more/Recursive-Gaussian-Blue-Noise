@@ -20,7 +20,6 @@ class SamplePointsConfig:
     bruteforce_max_n: int = 1_000          # N <= this: exact gaussian solver, whatever the method
     keops_min_n: int = 5_000               # KeOps kernels are only worth it above this N
     target_iter_factor: int = 2            # a target (nufft, cstit) needs more iterations
-    image_oversample: dict = field(default_factory=lambda: {"cstit": 32})
 
 
 @dataclass(frozen=True)
@@ -59,7 +58,7 @@ class RGBNConfig:
     steps_per_iter: int = 10               # descent steps between two neighbour updates
     grid_max_dim: int = 4                  # grid neighbours up to this D, Verlet lists above
     periodic_kernel_min_sigma2: float = 0.03
-    verlet_skin_factor: int = 3            # skin = skin_factor x neighbour list size
+    verlet_skin_factor: int = 3            # skin = verlet_skin_factor x neighbour list size
     verlet_chunk_elems: int = 2 ** 25      # memory budget (floats) of the neighbour searches
 
 
@@ -107,11 +106,16 @@ class MomentsConfig:
 
 
 @dataclass(frozen=True)
-class DensityConfig:
-    """Target images."""
+class TargetsConfig:
+    """Targets: images and point sets as densities (`blue_sampler.targets`)."""
     image_shape: tuple = (512, 512)
-    image_blur_sigma: float = 1.0          # pixels
+    image_blur_sigma: float = 1.0          # pixels, before i.i.d. sampling of an image
     image_jitter: float = 1 / 2000
+    cstit_oversample: int = 32             # i.i.d. atoms per output point when cstit reads an image
+    points_blur_spacing: float = 1.0       # pseudo image of a point set: blur in mean spacings
+    points_blur_min: float = 1.0           # ... and at least this many pixels
+    points_margin: float = 0.05            # point sets outside [0, 1]^D: margin of the unit cube kept empty
+                                           # (the cube is a torus: the support must not touch itself)
 
 
 @dataclass(frozen=True)
@@ -135,5 +139,5 @@ NUFFT = NufftConfig()
 CSTIT = CstitConfig()
 TESSELS = TesselsConfig()
 MOMENTS = MomentsConfig()
-DENSITY = DensityConfig()
+TARGETS = TargetsConfig()
 STRUCTURE_FACTOR = StructureFactorConfig()

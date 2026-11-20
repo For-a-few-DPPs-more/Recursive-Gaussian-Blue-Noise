@@ -16,7 +16,7 @@ from __future__ import annotations
 import numpy as np
 
 from .. import config
-from ..geometry import cross2d
+from .geometry import cross2d
 
 CFG = config.TESSELS
 UNIT_SQUARE = np.array([[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]])

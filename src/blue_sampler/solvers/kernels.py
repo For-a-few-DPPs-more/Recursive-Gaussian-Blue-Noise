@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from math import pi
 
-from .array_lib import JAX, Ops, min_image
+from ..array_lib import JAX, Ops, min_image
 
 
 def gaussian_force(delta, sigma2: float, ops: Ops = JAX):

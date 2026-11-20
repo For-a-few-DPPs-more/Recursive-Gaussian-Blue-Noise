@@ -22,24 +22,27 @@ import numpy as np
 
 from .. import config
 from ..array_lib import get_backend, keops_available, wrap
-from ..density import image_spectrum
 from ..lattice import lowest_modes
 from ..progress import Progress, log
+from ..targets import as_target, for_nufft
 
 CFG = config.NUFFT
 
-# L-BFGS finish (same settings as qmc_sampler): history size, max evaluations per iteration
+# L-BFGS finish: history size, max evaluations per iteration
 LBFGS_MEMORY = 30
 LBFGS_MAXFUN_FACTOR = 10
 
 
 class FinufftModel:
+    """Spectra on a (G,)^D grid of modes, FFT ordering; convention exp(+2i pi k.x)."""
     name = "finufft"
+    sign = 1
 
     def __init__(self, wv, N, D, precision, device):
         self.bk = bk = get_backend(device, precision)
         xp = bk.xp
         self.N, self.D, self.M = N, D, wv.M
+        self.modes = wv.k
         G = 2 * (int(np.abs(wv.k).max()) + 1)                 # smallest even grid holding every mode
         self.shape = (G,) * D
         freqs = xp.asarray(np.fft.fftfreq(G, d=1.0 / G), dtype=bk.real)   # FFT ordering
@@ -66,8 +69,11 @@ class FinufftModel:
         self.type1.setpts(*self._coords(points))
         return self.type1.execute(self.bk.xp.ones(len(points), dtype=self.bk.complex)) / len(points)
 
-    def image_spectrum(self, path):
-        return self.bk.xp.asarray(image_spectrum(path, self.shape), dtype=self.bk.complex)
+    def from_modes(self, values):
+        """Values on the M modes -> the (G,)^D grid (zero elsewhere: those modes have no weight)."""
+        grid = np.zeros(self.shape, dtype=np.complex128)
+        grid[tuple(self.modes.T.astype(np.int64) % self.shape[0])] = values
+        return self.bk.xp.asarray(grid, dtype=self.bk.complex)
 
     def loss_and_grad(self, x, fk_target):
         xp = self.bk.xp
@@ -80,7 +86,9 @@ class FinufftModel:
 
 
 class JaxModel:
+    """Spectra on the M modes; convention exp(-2i pi k.x)."""
     name = "jax"
+    sign = -1
 
     def __init__(self, wv, N, D, precision, device=None):
         import jax
@@ -89,7 +97,9 @@ class JaxModel:
         self.jnp = jnp
         self.real = jnp.float64 if precision == "float64" else jnp.float32
         cplx = jnp.complex128 if precision == "float64" else jnp.complex64
-        self.N, self.M = N, wv.M
+        self.cplx = cplx
+        self.N, self.D, self.M = N, D, wv.M
+        self.modes = wv.k
         k_max = int(np.abs(wv.k).max())
         k = jnp.asarray(wv.k, dtype=self.real)
         w = jnp.asarray(wv.w, dtype=self.real)
@@ -128,20 +138,26 @@ class JaxModel:
     def spectrum(self, points):
         return self._spectrum(self.asarray(points))
 
+    def from_modes(self, values):
+        return self.jnp.asarray(values, dtype=self.cplx)
+
     def loss_and_grad(self, x, fk_target):
         loss, grad = self._loss_and_grad(x, fk_target)
         return float(loss), grad
 
 
 class KeopsModel:
+    """Spectra on the M modes; convention exp(-2i pi k.x)."""
     name = "keops"
+    sign = -1
 
     def __init__(self, wv, N, D, precision, device=None):
         from pykeops.numpy import LazyTensor
 
         self.LazyTensor = LazyTensor
         self.real = np.float64 if precision == "float64" else np.float32
-        self.N, self.M = N, wv.M
+        self.N, self.D, self.M = N, D, wv.M
+        self.modes = wv.k
         self.k = np.ascontiguousarray(wv.k.astype(self.real))
         self.w = wv.w.astype(self.real)
         self.k_j = LazyTensor(self.k[None, :, :])
@@ -164,6 +180,9 @@ class KeopsModel:
         re = np.asarray(phase.cos().sum_reduction(axis=0)).ravel()
         im = -np.asarray(phase.sin().sum_reduction(axis=0)).ravel()
         return (re + 1j * im) / len(points)
+
+    def from_modes(self, values):
+        return np.asarray(values, dtype=np.complex128)
 
     def loss_and_grad(self, x, fk_target):
         diff = self.spectrum(x) - fk_target
@@ -196,11 +215,15 @@ def nufft(N: int = 10_000, D: int = 2, *, n_iter: int = 120, chi: float = 0.4, l
     N points in [0, 1)^D minimising the low-frequency structure factor (see module docstring).
 
     init: starting points (N, D), uniform random otherwise.
-    target: point cloud (K, D), or an image path ("finufft" model only). None: uniform.
+    target: image path (D = 2), point set (K, D) or `targets.Target`, see `blue_sampler.targets`.
+            None: uniform. The points are returned in the target's frame (see `Target.from_unit`).
     model: "finufft", "jax", "keops" or "auto". Ctrl-C stops early and returns the current points.
     newton_finition: spend the second half of n_iter on an L-BFGS descent (quasi-Newton finish).
     """
     model = pick_model(N, D) if model == "auto" else model
+    target = None if target is None else as_target(target, D)
+    if target is not None and init is not None:
+        init = target.to_unit(init)                       # warm start given in the target's frame
     if model == "finufft" and D > CFG.max_dim:
         raise ValueError(f"the finufft model supports D <= {CFG.max_dim} (got {D})")
     rng = np.random.default_rng(seed)
@@ -208,17 +231,8 @@ def nufft(N: int = 10_000, D: int = 2, *, n_iter: int = 120, chi: float = 0.4, l
     wv = lowest_modes(N, D, chi, rng)
     m = MODELS[model](wv, N, D, precision, device)
 
-    if target is None:
-        fk_target, target_info = 0.0, "uniform"
-    elif isinstance(target, str):
-        if model != "finufft":
-            raise NotImplementedError(f"image targets are only supported by the finufft model (D <= {CFG.max_dim})")
-        fk_target, target_info = m.image_spectrum(target), "image target"
-    else:
-        target = np.asarray(target)
-        if target.ndim != 2 or target.shape[1] != D:
-            raise ValueError(f"target must have shape (K, {D}), got {target.shape}")
-        fk_target, target_info = m.spectrum(target), f"target = {len(target):,} points"
+    fk_target = for_nufft(target, m)
+    target_info = "uniform" if target is None else repr(target)
 
     log(f"[nufft · {m.label}] N={N:,} D={D} chi={chi:.3f} modes={wv.M:,} ({target_info}) — Ctrl-C stops early",
         verbose)
@@ -246,11 +260,12 @@ def nufft(N: int = 10_000, D: int = 2, *, n_iter: int = 120, chi: float = 0.4, l
         log(f"\n[nufft] interrupted after {bar.count} iterations", verbose)
         x = state.get("x", x)
     bar.done()
-    return m.to_numpy(x)
+    x = m.to_numpy(x)
+    return x if target is None else target.from_unit(x)
 
 
 def _lbfgs(m, x, fk_target, n_iter, loss0, bar, state):
-    """L-BFGS-B (scipy) from x, the loss rescaled by its starting value (settings of qmc_sampler)."""
+    """L-BFGS-B (scipy) from x, the loss rescaled by its starting value."""
     from scipy.optimize import minimize
 
     N, D = x.shape

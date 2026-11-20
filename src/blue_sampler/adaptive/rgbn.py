@@ -171,7 +171,7 @@ def adaptive_rgbn(image, N: int, n_iter: int = N_ITER, seed: int | None = None, 
     """
     N dots in [0, 1)^2 following an image (dark = dense if invert), recursive adaptive GBN.
 
-    image: path, (512, 512) density indexed [x, y] (y up), or a `Density`.
+    image: path, point set (K, 2), (512, 512) density indexed [x, y] (y up), or a `Density`.
     n_iter: passes (of N_PER_STEP steps) per level, the root level gets ROOT_N_ITER.
     """
     import jax.numpy as jnp
@@ -184,17 +184,19 @@ def adaptive_rgbn(image, N: int, n_iter: int = N_ITER, seed: int | None = None, 
         amap = _amap(density, m)
         x = _draw(density, m, rng) if level == 0 else _clone(x, m, amap, rng)
         x = _descend(x, ROOT_N_ITER if level == 0 else n_iter, density, grad, amap, STENCIL, rng)
-    return x
+    return density.from_unit(x)
 
 
 def adaptive_refine(image, x: np.ndarray, n_iter: int = 6, seed: int | None = None, invert: bool = True) -> np.ndarray:
-    """n_iter more passes of rgbn on the dots x (N, 2), with the wider REFINE_STENCIL."""
+    """n_iter more passes of rgbn on the dots x (N, 2), with the wider REFINE_STENCIL.
+    x is given, and returned, in the frame of the target."""
     import jax.numpy as jnp
 
     density = _density(image, invert)
-    x = np.asarray(x, np.float32)
-    return _descend(x, n_iter, density, jnp.asarray(density.grad), _amap(density, len(x)), REFINE_STENCIL,
-                    np.random.default_rng(seed))
+    x = density.to_unit(x).astype(np.float32)
+    x = _descend(x, n_iter, density, jnp.asarray(density.grad), _amap(density, len(x)), REFINE_STENCIL,
+                 np.random.default_rng(seed))
+    return density.from_unit(x)
 
 
 # ── All pairs (gbn) ───────────────────────────────────────────────────────────
@@ -204,7 +206,8 @@ def adaptive_gbn(image, N: int, n_iter: int = 2 * ROOT_N_ITER, seed: int | None 
     """
     N dots in [0, 1)^2 following an image, adaptive GBN with all O(N^2) pairs (N up to ~10^4).
 
-    n_iter: passes of N_PER_STEP steps. x: initial dots (N, 2), default drawn from the density.
+    n_iter: passes of N_PER_STEP steps. x: initial dots (N, 2) in the target's frame, default drawn
+    from the density.
     """
     import jax
     import jax.numpy as jnp
@@ -213,7 +216,7 @@ def adaptive_gbn(image, N: int, n_iter: int = 2 * ROOT_N_ITER, seed: int | None 
     density = _density(image, invert)
     grad, amap = jnp.asarray(density.grad), jnp.asarray(_amap(density, N))
     sigma2 = 1.0 / N
-    x = _draw(density, N, rng) if x is None else np.asarray(x, np.float32)
+    x = _draw(density, N, rng) if x is None else density.to_unit(x).astype(np.float32)
 
     def step(_, p):
         a = interpolate(amap, p)
@@ -226,4 +229,4 @@ def adaptive_gbn(image, N: int, n_iter: int = 2 * ROOT_N_ITER, seed: int | None 
         return _move(p, a, _attraction(grad, p, k, f), jnp.sum(d * w[..., None], 1), sigma2)
 
     run = jax.jit(lambda p: jax.lax.fori_loop(0, n_iter * N_PER_STEP, step, p))
-    return np.asarray(run(jnp.asarray(x)))
+    return density.from_unit(np.asarray(run(jnp.asarray(x))))

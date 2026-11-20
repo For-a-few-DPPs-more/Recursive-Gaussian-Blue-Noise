@@ -29,8 +29,8 @@ dependencies = [
     "scipy",
     "matplotlib",
     "finufft",
-    "squarenet",
     "gridpoints",
+    "pillow",
 ]
 
 [project.optional-dependencies]

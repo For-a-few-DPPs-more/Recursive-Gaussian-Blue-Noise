@@ -278,7 +278,7 @@ def structure_factor_and_average(
     """
     Compute the structure factor of a point set and return raw and radially-averaged curves.
 
-    ``trust_boundary`` behave as in
+    ``precision``, ``trust_boundary``, ``margin``, ``beta`` and ``backend`` behave as in
     ``structure_factor``.
 
     Returns

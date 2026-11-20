@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..density import load_image
+from ..targets import as_target, for_adaptive
 
 G = 512
 T0 = 0.25 / G ** 2          # smallest kernel variance: half a pixel of standard deviation
@@ -18,10 +18,15 @@ LEVELS = 14                 # one octave of variance each: up to a standard devi
 
 class Density:
     def __init__(self, image, invert: bool = True):
-        """image: path, or a non-negative (G, G) array indexed [x, y]."""
-        rho = load_image(image, (G, G), invert) if isinstance(image, str) else np.asarray(image, np.float64)
-        if rho.shape != (G, G):
-            raise ValueError(f"density must have shape {(G, G)}, got {rho.shape}")
+        """image: path, point set (K, 2) (pseudo image, see `targets.points_to_density`), `targets.Target`,
+        or a non-negative (G, G) density grid indexed [x, y].
+        The dots live in the unit square; `from_unit` / `to_unit` map them to / from the target's frame."""
+        if isinstance(image, np.ndarray) and image.shape == (G, G):
+            self.target = None
+            rho = image.astype(np.float64)
+        else:
+            self.target = as_target(image, 2)
+            rho = for_adaptive(self.target, (G, G), invert)
         self.rho = (rho / rho.mean()).astype(np.float32)            # mean 1
         self.rho_hat = np.fft.fft2(self.rho.astype(np.float64))
         f = np.fft.fftfreq(G, 1.0 / G)
@@ -33,6 +38,12 @@ class Density:
             z = np.fft.ifft2(self.rho_hat * 2j * np.pi * g * (self.fx + 1j * self.fy))  # re: d/dx, im: d/dy
             grad[k, ..., 0], grad[k, ..., 1] = z.real, z.imag
         self.grad = grad
+
+    def to_unit(self, x) -> np.ndarray:
+        return np.asarray(x) if self.target is None else self.target.to_unit(x)
+
+    def from_unit(self, u) -> np.ndarray:
+        return u if self.target is None else self.target.from_unit(u)
 
     def smooth(self, t: float) -> np.ndarray:
         """rho * g_t on the grid (mean 1)."""
