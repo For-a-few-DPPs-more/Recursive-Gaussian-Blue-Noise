@@ -1,14 +1,16 @@
 [![PyPI](https://img.shields.io/pypi/v/blue-sampler.svg)](https://pypi.org/project/blue-sampler/)
 [![Docs](https://readthedocs.org/projects/blue-sampler/badge/?version=latest)](https://blue-sampler.readthedocs.io)
-[![GitHub](https://img.shields.io/badge/source-GitHub-black?logo=github)](https://github.com/For-a-few-DPPs-more/rgbn)
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/For-a-few-DPPs-more/rgbn/blob/main/examples.ipynb)
+[![GitHub](https://img.shields.io/badge/source-GitHub-black?logo=github)](https://github.com/For-a-few-DPPs-more/Recursive-Gaussian-Blue-Noise)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/For-a-few-DPPs-more/Recursive-Gaussian-Blue-Noise/blob/main/examples.ipynb)
 
 
-# blue-sampler / hyperuniform sampler
+# blue-sampler
 
 **Generate large hyperuniform point patterns** (i.e. blue noise) on the unit torus $[0, 1)^D$, uniformly or following a given target distribution. 
 
 Hyperuniform point patterns exhibit vanishing density fluctuations at low frequencies, making them particularly suited for **Monte Carlo** integration, **image stippling**, and any application requiring well-distributed, low-discrepancy points. 
+
+For the companion dataset of this repository, with pregenerated hyperuniform samples in various dimensions, see [hyperuniform-samplers](https://github.com/For-a-few-DPPs-more/hyperuniform-samplers)
 
 ---
 
@@ -33,7 +35,7 @@ blue.plot(x)
 blue.plot_structure_factor(x) 
 
 # Image stippling
-x = blue.im2points("plots/zebra.jpg")
+x = blue.image_to_points("plots/zebra.jpg")
 ```
 
 ---
@@ -81,9 +83,10 @@ x = blue.sample_points(N, D, method="rgbn") #(N, D)
 | ≥6D       | Experimental  |
 
 
-All presented samplers, having linear complexity in the number of points, are thus intended to scale up to million points beyond the minute (GPU) or 20 minutes (CPU).
+All presented samplers but the original GBN (quadratic complexity), having near linear complexity in the number of points, are thus intended to scale up to million points beyond the minute (GPU) or 20 minutes (CPU) in low dimension (<=3d). They all face increasing challenges when the dimension grow, whether it being the hyperuniformity strength or the required sampling runtime.
 The recommanded default is: 
- - dimension D = 1/2/3: `nufft`
+ - dimension D = 2: `rgbn` (non-uniform target), `nufft` (uniform points)
+ - dimension D = 3: `nufft`
  - dimension D = 4/5: `rgbn` or `gaussian` (depending on N + gpu availability)
  - dimension 6 or more: `gaussian`
 
@@ -108,13 +111,6 @@ The recommanded default is:
 
 > **Note on Keops acceleration**: gaussian and nufft (if dimension D >= 4) samplers will get much faster on gpu, if `pykeops` is installed on the hardware along with all it's dependency (which will be automatically detected). This is optional, and mainly usefull to sample large datasets on a GPU.
 >See [pykeops](https://www.kernel-operations.io/keops/python/installation.html#requirements) documentation
-
-> **Note on adaptative sampling**: The sampling methods implemented here support adaptive sampling from a target distribution. The target must be given as an oversampled dataset sampled according to the desired distribution. as an example, sampling blue noise from a normal distribution would be:
->```python
->import numpy as np
->targets = np.random.randn(50*N, D) #i.i.d normal distribution with numpy
->points = blue.sample_points(N=N, D=D, targets = targets, method = "nufft")
->```
 
 > **Note on structure factor**: The structure factor characterizes the density fluctuations of the points in Fourier space and is equivalent to the **power spectrum** (up to normalization). The estimation of structure factor assumes that the points domain is the unit hypercube and uses the standard `scattering intensity` estimator.
 > To compute and plot a structure factor:
@@ -158,7 +154,7 @@ The algorithms and mathematical tools implemented in **blue-sampler** are based 
   **Generation of Primordial Cosmological Perturbations from Statistical Mechanical Models.**  
   *Physical Review D*, **67**(4):043506, 2003.  
 
-- **SquareNet** [(v1.3.11). 2026](https://squarenet.readthedocs.io/en/latest/).  
+- [Gridpoints](https://github.com/Neighborhood-Grid/gridpoints).  
   Grid data structure for point clouds, codeveloped with RGBN \
   for efficient neighbor query and fourier trnasform in Python.
 
@@ -175,12 +171,16 @@ The package strongly benefits from following libraries:
 
 ---
 
-## Alternative Samplers
+## Alternative Samplers (extras)
+
+```python
+import blue_sampler.extras as bluex
+```
 
 ### Sobol sequence 📏
 
 ```python
-x = blue.sobol(N, D) #(N, D)
+x = bluex.sobol(N, D) #(N, D)
 ```
 Low-discrepancy quasi-random sequence. 
 
@@ -188,31 +188,31 @@ Low-discrepancy quasi-random sequence.
 
 ```python
 # Raw STIT tessellation (quadrilaterals)
-ts = blue.sample_tessels(N) #(N, 4, D=2)
-blue.plot_tessels(ts) 
+ts = bluex.sample_tessels(N) #(N, 4, D=2)
+bluex.plot_tessels(ts) 
 
 # Convert to point set
-x = blue.tessel2points(ts) #(N, m, D=2)
+x = bluex.tessel_to_points(ts) #(N, m, D=2)
 ```
 
 ### Pinwheel Tilings (2D only) 𖣘
 
 ```python
 # Base pinwheel triangle
-pw0 = blue.pinwheel_base()  #(3, D=2)
+pw0 = bluex.pinwheel_base()  #(3, D=2)
 
 # Triangulation level 4
-pw4 = blue.pinwheel_transform(pw0, depth=4) #(4*5**depth, 3, D=2)
-blue.plot_polygons(pw4) 
+pw4 = bluex.pinwheel_transform(pw0, depth=4) #(4*5**depth, 3, D=2)
+bluex.plot_polygons(pw4) 
 
 #===============================
 # Convert Pinwheel to point set:
 #===============================
 #sample points from the BASE pinwheel
-x0 = blue.tessel2points(pw0) #(m, D=2)
+x0 = bluex.tessel_to_points(pw0) #(m, D=2)
 #then replicate the sample on the full triangulation,
 #in a fractal way
-x4 = blue.pinwheel_transform(x0, depth = 4) #(4*5**depth, m, D=2)
+x4 = bluex.pinwheel_transform(x0, depth = 4) #(4*5**depth, m, D=2)
 ```
 
 ---

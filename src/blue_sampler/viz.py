@@ -3,21 +3,24 @@ Visualisation helpers.
 
 plot                   Scatter plot of a 2-D or 3-D point set.
 plot_structure_factor  Log-log plot of the radial structure factor S(k).
-plot_tessels           Display a STIT tessellation across recursion depths.
-plot_clusters          Display a cluster partition across recursion depths.
-plot_polygons          Display an arbitrary collection of polygons.
 """
 
 from __future__ import annotations
 
+import warnings
 import numpy as np
 from numpy.typing import NDArray
 import matplotlib.pyplot as plt
-from matplotlib.collections import PolyCollection
 
-from .structurefactor import structure_factor_and_average
-from .run.run_tessels import back_merge_tessels
-from .run.run_clusters import back_merge_clusters
+from .structure_factor import structure_factor_and_average, tapered_kmin
+
+
+def _show_or_return(fig, axes, return_fig: bool):
+    plt.tight_layout()
+    if return_fig:
+        return fig, axes
+    plt.show()
+    return None
 
 
 # ---------------------------------------------------------------------
@@ -38,7 +41,7 @@ def plot(
 
     Parameters
     ----------
-    points : ndarray of shape (N, D) or (N, M, D)
+    points : ndarray of shape (N, D) or (N, K, D)
         Point coordinates, with D in {2, 3}.
         Arrays of shape (N, K, D) are flattened to (N*K, D) before
         plotting. Dimensions beyond 3 are silently dropped (only
@@ -68,18 +71,12 @@ def plot(
     D = min(pts.shape[-1], 3)
     pts = pts[:, :D]
 
-    scale_min = pts.min()
-    scale_max = pts.max()
-    scale_delta = scale_max - scale_min
-
-    if auto_zoom and (len(pts) > max_points):
-        offset = np.random.rand(D)[None]
+    if auto_zoom and len(pts) > max_points:
+        # keep a random sub-box holding ~max_points points
+        unit = (pts - pts.min()) / (pts.max() - pts.min())
         zoom = (max_points / len(pts)) ** (1.0 / D)
-        dtpts = pts / scale_delta - scale_min
-        pts = pts[
-            ((1-zoom)*offset <= dtpts).all(axis = 1) &
-            (dtpts<= zoom + (1-zoom)*offset).all(axis=1)
-        ]
+        lo = (1 - zoom) * np.random.rand(D)
+        pts = pts[((lo <= unit) & (unit <= lo + zoom)).all(axis=1)]
 
     kw = dict(s=10_000 / len(pts), color="black")
     kw.update(scatter_kw)
@@ -99,13 +96,7 @@ def plot(
         ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], **kw)
 
     ax.set_axis_off()
-    plt.tight_layout()
-
-    if return_fig:
-        return fig, ax
-
-    plt.show()
-    return None
+    return _show_or_return(fig, ax, return_fig)
 
 
 # ---------------------------------------------------------------------
@@ -119,9 +110,12 @@ def plot_structure_factor(
     ax: plt.Axes | None = None,
     return_fig: bool = False,
     title: str = None,
+    trust_boundary: bool | str = True,
+    margin: float = 0.1,
+    beta: float | None = None,
     **plot_kw,
 ) -> tuple[plt.Figure, plt.Axes] | None:
-    """
+    r"""
     Log-log plot of the radial structure factor S(k).
 
     The structure factor is estimated from the scattering intensity, i.e. the
@@ -138,14 +132,35 @@ def plot_structure_factor(
     resolution : int, default=20000
         Number of sampled wave vectors. Larger values produce a smoother
         radial curve at increased computational cost. If D >= 4, the resolution
-        will be divided by 10 for faster computation.
+        will be divided by 10 for faster computation because fast fourier is unavailable, so if D >= 4, ask for a "resolution = 200_000" if an effective resolution = 20_000 is needed (20_000 evaluated wave vectors).
     precision : precision used for the structure factor computation.
-        float64 is much slower, but might be needed if the true structure 
+        float64 is much slower, but might be needed if the true structure
         factor is beyond 10^(-10).
     ax : matplotlib.axes.Axes, optional
         Existing axes on which to draw. If None, a new figure is created.
     return_fig : bool, default=False
         If True, return ``(fig, ax)`` instead of displaying the figure.
+    title : str, optional
+        Title of the axes. None: a default title depending on trust_boundary.
+    trust_boundary : {True, False, "both"}, default=True
+        Whether the boundary of the unit hypercube can be trusted.
+
+        - ``True``: the boundary is trusted, no correction is applied.
+        The point pattern is assumed to already self compensate for density
+        fluctuations near the edges of the unit hypercube, e.g. when the
+        points were sampled with periodic boundary conditions.
+        - ``False``: the boundary is not trusted, e.g. when the sample is
+        only a small window of a larger point pattern on :math:`\mathbb{R}^d`.
+        The points are first restricted to the sub-cube
+        :math:`[m, 1-m)^d` (``m = margin``), and the estimate on this
+        restriction is then debiased with tapering.
+        - ``"both"``: compute and plot both estimates.
+    margin : float, default=0.1
+        Width removed on each side of the unit cube (trust_boundary=False only).
+    beta : float or None, default=None
+        Kaiser taper parameter (trust_boundary=False only): larger means less
+        leakage (~exp(-2 beta)) but coarser resolution at small k. None ->
+        automatic (15 when enough points per axis, smaller in high dimension).
     **plot_kw
         Additional keyword arguments forwarded to ``ax.loglog`` for the
         smoothed curve.
@@ -166,10 +181,8 @@ def plot_structure_factor(
     small k is the characteristic spectral signature of hyperuniformity.
 
     The plotted scattering intensity is an estimator of the structure factor,
-    not the exact structure factor. If the point set is not itself periodic,
-    finite-window boundary effects introduce a systematic bias. At the scales
-    considered here, a typical boundary error epsilon = S(k) - Stheoric(k)
-    of order ``N**(-1/D)`` is expected.
+    not the exact structure factor. In particular, finite-window boundary effects can introduce a bias. Use trust_boundary = "both" or False to apply
+    boundary effect correction based on tapering.
 
     Warnings
     --------
@@ -178,8 +191,16 @@ def plot_structure_factor(
     estimator.
     """
     pts = np.asarray(points).reshape(-1, np.asarray(points).shape[-1])
-    # --- Compute structure factor and and averages ---
-    k, S, kgroup, Sgroup = structure_factor_and_average(pts, resolution=resolution, precision=precision)
+    N, D = pts.shape
+
+    if isinstance(trust_boundary, str):
+        if trust_boundary != "both":
+            raise ValueError("trust_boundary must be True, False or 'both'")
+        modes = [True, False]
+        both = True
+    else:
+        modes = [bool(trust_boundary)]
+        both = False
 
     # --- Axes setup ---
     own_fig = ax is None
@@ -193,24 +214,48 @@ def plot_structure_factor(
     ax.set_xscale("log")
     ax.set_yscale("log")
 
-    # --- Scatter: dim color when smoothed curve will overlay ---
-    scat_color = "lightgray" 
-    scat_big_color = "gray" 
+    for trust in modes:
+        # --- Compute structure factor and averages ---
+        k, S, kgroup, Sgroup = structure_factor_and_average(
+            pts, resolution=resolution, precision=precision,
+            trust_boundary=trust, margin=margin, beta=beta,
+        )
+        if not trust:
+            # nothing is shown below the resolution limit of the taper
+            kmin = tapered_kmin(N, D, margin, beta)
+            keep, keep_g = k >= kmin, kgroup >= kmin
+            k, S, kgroup, Sgroup = k[keep], S[keep], kgroup[keep_g], Sgroup[keep_g]
+            if len(kgroup) < 2:
+                warnings.warn("trust_boundary=False: no wave number above the resolution "
+                              "limit (too few points in the truncated window); curve not drawn.")
+                continue
 
-    Sgroup_interp = np.exp(np.interp(
-        np.log(k), np.log(kgroup), np.log(Sgroup)
-    ))
-    bigS = S >= 30 * Sgroup_interp
+        # --- Scatter (raw values) ---
+        # single mode: neutral grays; 'both': same hue as the smoothed curve,
+        # bluish gray (trusted, tab:blue) / orangish gray (tapered, tab:orange)
+        if not both:
+            c_light, c_dark = "lightgray", "gray"
+        elif trust:
+            c_light, c_dark = "#b8c4d0", "#6b7f94"
+        else:
+            c_light, c_dark = "#d8c7b6", "#9c8068"
+        Sgroup_interp = np.exp(np.interp(np.log(k), np.log(kgroup), np.log(Sgroup)))
+        bigS = S >= 30 * Sgroup_interp
+        ax.scatter(k[~bigS], S[~bigS], s=5, color=c_light, alpha=0.6, zorder=2)
+        ax.scatter(k[bigS], S[bigS], s=20, color=c_dark, alpha=1.0, zorder=2)
 
-    ax.scatter(k[~bigS], S[~bigS], s=5,  color=scat_color,     alpha=0.6, zorder=2)
-    ax.scatter(k[bigS],  S[bigS],  s=20, color=scat_big_color, alpha=1.0, zorder=2)
+        # --- Smoothed curve ---
+        curve_kw = {"color": "tab:blue", "zorder": 3, "label": None,
+                    "marker": "o", "markersize": 2, "linewidth": 2}
+        curve_kw.update(plot_kw)
+        if both:
+            curve_kw["label"] = "boundary trusted" if trust else "truncated + taper"
+            if not trust:
+                curve_kw["color"] = "tab:orange"
+                curve_kw["zorder"] = 4
+        ax.loglog(kgroup, Sgroup, **curve_kw)
 
-    # --- Smoothed curve ---
-    curve_kw = {"color": "tab:blue", "zorder": 3, "label": None,
-                "marker": "o", "markersize": 2, "linewidth": 2}
-    curve_kw.update(plot_kw)
-    ax.loglog(kgroup, Sgroup, **curve_kw)
-    if curve_kw.get("label") not in (None, "_nolegend_"):
+    if ax.get_legend_handles_labels()[1]:
         ax.legend()
 
     # --- Reference lines and axis limits (only when we own the figure) ---
@@ -222,266 +267,11 @@ def plot_structure_factor(
         ax.set_xlabel(r"$k$")
         ax.set_ylabel(r"$S(k)$")
 
-    ax.set_title(title or "Structure factor (log-log, scattering intensity)")
-    plt.tight_layout()
-
-    if return_fig:
-        return fig, ax
-
-    plt.show()
-    return None
-
-
-# ---------------------------------------------------------------------
-# TESSELS
-# ---------------------------------------------------------------------
-
-def show_polygons(ax: plt.Axes, tessels: NDArray) -> plt.Axes:
-    """Draw a set of quadrilaterals on ``ax`` (internal helper)."""
-    for quad in tessels:
-        qloop = np.vstack([quad, quad[0]])
-        ax.plot(qloop[:, 0], qloop[:, 1], "-o", ms=3)
-        ax.fill(qloop[:, 0], qloop[:, 1], alpha=0.25)
-    return ax
-
-
-def plot_tessels(
-    tessels: NDArray,
-    axes: plt.Axes | None = None,
-    return_fig: bool = False,
-) -> tuple[plt.Figure, NDArray] | None:
-    """
-    Display a STIT tessellation across successive recursion depths.
-
-    The function starts from the provided tessellation and progressively
-    merges pairs of quadrilaterals to reconstruct coarser levels, then
-    plots each level side by side (up to 12 panels).
-
-    Parameters
-    ----------
-    tessels : ndarray of shape (N, 4, 2)
-        Output of `sample_tessels`. N must be a power of 2.
-    axes : array of matplotlib Axes, optional
-        Pre-existing axes to draw into. If None, a new figure is created
-        with one subplot per recursion depth.
-    return_fig : bool, default False
-        If True, return ``(fig, axes)`` instead of calling ``plt.show()``.
-
-    Returns
-    -------
-    (fig, axes) if return_fig is True, else None.
-
-    Examples
-    --------
-    >>> ts = blue.sample_tessels(N=1024)
-    >>> blue.plot_tessels(ts)
-    """
-    depth = int(np.log2(len(tessels)))
-    n_plots = min(depth, 12)
-    ncols = min(3, n_plots) if n_plots > 0 else 1
-    nrows = int(np.ceil(n_plots / ncols))
-
-    if axes is None:
-        fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 4 * nrows))
-        axes = np.atleast_1d(axes).flatten()
+    if both:
+        default_title = "Structure factor (log-log): boundary trusted vs truncated + taper"
+    elif not modes[0]:
+        default_title = "Structure factor (log-log, truncated + Kaiser taper)"
     else:
-        fig = axes.get_figure()
-
-    while depth > 11:
-        tessels = back_merge_tessels(tessels)
-        depth -= 1
-
-    for k in reversed(range(n_plots)):
-        show_polygons(axes[k], np.random.permutation(tessels))
-        axes[k].set_aspect("equal")
-        axes[k].axis("off")
-        if k > 0:
-            tessels = back_merge_tessels(tessels)
-
-    plt.tight_layout()
-
-    if return_fig:
-        return fig, axes
-
-    plt.show()
-    return None
-
-
-# ---------------------------------------------------------------------
-# CLUSTERS
-# ---------------------------------------------------------------------
-
-def show_clusters(ax: plt.Axes, clusters: NDArray) -> plt.Axes:
-    """Scatter-plot a cluster partition on ``ax``, colour-coded by cluster (internal helper)."""
-    n_clusters, n_points_per_cluster, _ = clusters.shape
-    cmap = plt.get_cmap("tab20" if n_clusters > 10 else "tab10")
-
-    flat_pts = clusters.reshape(-1, clusters.shape[-1])
-
-    order = np.arange(len(flat_pts))
-    if flat_pts.shape[-1] == 3:
-        order = np.argsort(flat_pts[:, 2])
-
-    cluster_indices = np.arange(n_clusters)[:, None]
-    flat_indices = np.repeat(cluster_indices, n_points_per_cluster)
-
-    colors = cmap(flat_indices % cmap.N)
-
-    ax.scatter(flat_pts[order, 0], flat_pts[order, 1], s=4, color=colors[order])
-    return ax
-
-
-def plot_clusters(
-    clusters: NDArray,
-    axes: plt.Axes | None = None,
-    return_fig: bool = False,
-) -> tuple[plt.Figure, NDArray] | None:
-    """
-    Display a cluster partition across successive recursion depths.
-
-    The function starts from the provided cluster set and progressively
-    merges pairs of clusters to reconstruct coarser levels, then plots
-    each level side by side (up to 9 panels), with each cluster shown
-    in a distinct colour.
-
-    Parameters
-    ----------
-    clusters : ndarray of shape (N, k, D)
-        Output of `sample_clusters`. N must be a power of 2.
-        D can be 2 or 3; higher dimensions are projected to the first 3
-        coordinates via an isometric linear map before display.
-    axes : array of matplotlib Axes, optional
-        Pre-existing axes to draw into. If None, a new figure is created
-        with one subplot per recursion depth.
-    return_fig : bool, default False
-        If True, return ``(fig, axes)`` instead of calling ``plt.show()``.
-
-    Returns
-    -------
-    (fig, axes) if return_fig is True, else None.
-
-    Examples
-    --------
-    >>> cl = blue.sample_clusters(N=512, D=2)
-    >>> blue.plot_clusters(cl)
-    """
-    depth = int(np.log2(len(clusters)))
-    n_plots = min(depth, 9)
-    ncols = min(3, n_plots) if n_plots > 0 else 1
-    nrows = int(np.ceil(n_plots / ncols))
-
-    if axes is None:
-        fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 4 * nrows))
-        axes = np.atleast_1d(axes).flatten()
-    else:
-        fig = axes.get_figure()
-
-    while depth > 8:
-        clusters = back_merge_clusters(clusters)
-        depth -= 1
-
-    clusters = np.random.permutation(
-        clusters.transpose(1, 0, 2)
-    ).transpose(1, 0, 2)[:, :16]
-
-    D = clusters.shape[-1]
-    if D > 3:
-        clusters = clusters[:, :, :3]
-
-    if D >= 3:
-        R = np.array([
-            [1,  1 / np.sqrt(3), -np.sqrt(2) / np.sqrt(3)],
-            [-1, 1 / np.sqrt(3), -np.sqrt(2) / np.sqrt(3)],
-            [0,  2 / np.sqrt(3),  np.sqrt(2) / np.sqrt(3)],
-        ])
-        clusters = np.einsum("ijk,kl->ijl", clusters, R)
-
-    for k in reversed(range(n_plots)):
-        show_clusters(axes[k], np.random.permutation(clusters))
-        axes[k].set_aspect("equal")
-        axes[k].axis("off")
-        if k > 0:
-            clusters = back_merge_clusters(clusters)
-
-    plt.tight_layout()
-
-    if return_fig:
-        return fig, axes
-
-    plt.show()
-    return None
-
-
-def plot_polygons(
-    polygons: NDArray,
-    ax: plt.Axes | None = None,
-    return_fig: bool = False,
-    color: str = "auto",
-    linewidth: float = 1.2,
-) -> tuple[plt.Figure, plt.Axes] | None:
-    """
-    Visualise a collection of polygons with colour-coded faces.
-
-    Polygon opacity is scaled by inverse area squared, so tiny polygons
-    (e.g. deep in a Pinwheel tiling) remain visible while large ones are
-    rendered with full opacity.
-
-    Parameters
-    ----------
-    polygons : ndarray of shape (N, M, 2)
-        N polygons, each defined by M vertices in 2D.
-        Typical inputs:
-
-        - Output of `pinwheel_transform` — triangles of shape (N, 3, 2).
-        - Output of `sample_tessels` — quadrilaterals of shape (N, 4, 2).
-    ax : matplotlib Axes, optional
-        Existing axes to draw into. If None, a new figure is created.
-    return_fig : bool, default False
-        If True, return ``(fig, ax)`` instead of calling ``plt.show()``.
-
-    Returns
-    -------
-    (fig, ax) if return_fig is True, else None.
-
-    Examples
-    --------
-    >>> pw = blue.pinwheel_transform(blue.pinwheel_base(), depth=4)
-    >>> blue.plot_polygons(pw)
-    """
-    if len(polygons) >= 30_000:
-        linewidth = 0
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(8, 8), dpi=150)
-    else:
-        fig = ax.get_figure()
-
-    n = len(polygons)
-    if color == "auto":
-        cmap = plt.cm.YlGnBu
-        color = cmap(0.2 + 0.8 * (np.random.permutation(np.arange(n)) / n))
-
-    x = polygons[:, :, 0]
-    y = polygons[:, :, 1]
-    x_next = np.roll(x, -1, axis=1)
-    y_next = np.roll(y, -1, axis=1)
-    areas_inv = 1 / np.abs(0.5 * np.sum(x * y_next - x_next * y, axis=1))
-    areas_inv2 = areas_inv**2
-    areas_inv2 = (areas_inv2 / areas_inv2.mean() + 0.01).clip(max=1.0)
-
-    collection = PolyCollection(
-        polygons,
-        facecolors=color,
-        edgecolors="none" if linewidth <= 0.01 else "#FFFFFF",
-        linewidth=linewidth,
-        alpha=areas_inv2,
-    )
-    ax.add_collection(collection)
-    ax.set_aspect("equal")
-    ax.axis("off")
-
-    plt.tight_layout()
-
-    if return_fig:
-        return fig, ax
-
-    plt.show()
+        default_title = "Structure factor (log-log, scattering intensity)"
+    ax.set_title(title or default_title)
+    return _show_or_return(fig, ax, return_fig)
