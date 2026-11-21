@@ -1,6 +1,7 @@
 """
 Structure factor estimation.
 
+The structure factor is estimated from the scattering intensity.
 Two modes, selected by ``trust_boundary``
 -----------------------------------------
 trust_boundary=True (default, reference)
@@ -10,28 +11,14 @@ trust_boundary=True (default, reference)
     e.g. because they were sampled with a periodic procedure on the unit torus.
 
 trust_boundary=False
-    The boundary is not trusted. Tests the *bulk* structure of the point set,
-    independently of how its boundary was handled by the sampler (torus, hard
-    cube, exotic domain):
+    The boundary is not trusted, eg because the point set is not periodic
+    (this leads to boundary effects when estimating the structure factor),
+    Activate a compensation mecanism, based on tapering:
 
-    1. Truncation: keep only the points of the inner cube [m, 1-m]^D, a window the sampler never "saw" as a boundary, and rescale it to [0, 1)^D.
+    1. Truncation: keep only the points of the inner cube [m, 1-m]^D
     2. Tapering: weight each point by a separable Kaiser-Bessel taper
-       h(x) = prod_d I0(beta sqrt(1 - (2 x_d - 1)^2)) / norm, a closed-form
-       approximation of the optimal (Slepian / DPSS) taper. Its spectral leakage
-       is ~exp(-2 beta) instead of ~1/q^2 for a hard cut.
-    3. Debiasing with the *promised* density rho = N (points per unit volume):
-       F(n) = sum_j h(x_j) e^{2i pi n.x_j} - rho |W| H(n),   S(n) = |F(n)|^2 / (rho |W|),
-       where H is the analytic Fourier transform of the taper.
-
-    Trade-off: the spectral window of the taper has a half-width of about
-    beta / pi wave-number units of the truncated window. Estimates at
-    |n| < beta/pi + 1 (see ``tapered_kmin``) are dominated by this
-    resolution limit and should not be interpreted.
-    Rule of thumb: leakage <= 1e-10 needs beta ~ 15 and a margin of ~5 modes.
-    By default beta is chosen by ``auto_beta`` (15 when there are enough points per axis, smaller in high dimension).
-
-Wave vectors: exhaustive grid with NUFFT for D <= 3, lattice + random sampling
-with brute-force sums for D >= 4 (numpy or cupy, depending on ``device``).
+    See https://numpy.org/doc/2.5/reference/generated/numpy.kaiser.html
+    3. Debiasing with the estimated density rho = N (points per unit volume)
 """
 
 from __future__ import annotations
