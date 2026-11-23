@@ -68,7 +68,7 @@ x = blue.sample_points(N, D, method="rgbn") #(N, D)
 |----------------|------------------------------------------|
 | `gaussian`     | original Gaussian-Blue-Noise sampler (high quality, slow), A. G. M. Ahmed, J. Ren, and P. Wonka.  |
 | `rgbn`         | Recursive Gaussian-Blue-Noise (speed-up GBN with recursive initialisation)      |
-| `nufft/nufft+` | Non-Uniform FFT (speed-up spectral methods with fast fourier transform)    |
+| `nufft/nufft+` | spectral optimisation of the structure factor, delegated to [qmc-sampler](https://pypi.org/project/qmc-sampler/) |
 | `cstit`        | Fair-STIT inspired clustering (clusters replace complex polygon geometry)       |
 | `latjit`       | fast and simple lattice jittering        |
 
@@ -103,13 +103,13 @@ The recommanded default is:
 > ```bash
 > pip install blue-sampler[gpu13]
 > ```
-> If the CUDA installation fails, you may need to install `jax`, `cupy`, and `cufinufft` manually. Once installed, you can check that GPU support is correctly configured by running:
+> If the CUDA installation fails, you may need to install `jax`, `cupy`, and `cufinufft` manually (`cufinufft` is used by the structure factor and the spectral samplers). Once installed, you can check that GPU support is correctly configured by running:
 > ```python
 > import blue_sampler
 > blue_sampler.check_gpu()
 > ```
 
-> **Note on Keops acceleration**: gaussian and nufft (if dimension D >= 4) samplers will get much faster on gpu, if `pykeops` is installed on the hardware along with all it's dependency (which will be automatically detected). This is optional, and mainly usefull to sample large datasets on a GPU.
+> **Note on Keops acceleration**: gaussian and nufft samplers will get much faster on gpu, if `pykeops` is installed on the hardware along with all it's dependency (which will be automatically detected). This is optional, and mainly usefull to sample large datasets on a GPU.
 >See [pykeops](https://www.kernel-operations.io/keops/python/installation.html#requirements) documentation
 
 > **Note on structure factor**: The structure factor characterizes the density fluctuations of the points in Fourier space and is equivalent to the **power spectrum** (up to normalization). The estimation of structure factor assumes that the points domain is the unit hypercube and uses the standard `scattering intensity` estimator.
@@ -117,6 +117,22 @@ The recommanded default is:
 > ```python
 >blue.plot_structure_factor(points)
 > ```
+
+---
+
+## Companion packages
+
+`blue-sampler` installs and re-exports two packages of the same project, so that `import blue_sampler as blue` is all you need:
+
+| Package | Re-exported in `blue` | Role |
+|---------|-----------------------|------|
+| [structure-factor-v2](https://pypi.org/project/structure-factor-v2/) | `structure_factor`, `structure_factor_and_average`, `plot`, `plot_structure_factor` | structure factor $S(k)$ (scattering intensity, Kaiser taper, several backends) and plots; also provides the Korobov / jittered lattices (`latjit`, `"Goodlattice"` warm starts) |
+| [qmc-sampler](https://pypi.org/project/qmc-sampler/) | `sample_l2`, `sample_l1`, `sample_wd`, `select_backend`, `select_precision`, `select_nufft_tolerance` | spectral samplers; also behind `method="nufft"/"nufft+"`, `image_to_points(fast=True)` and `bluex.image_to_quads` |
+
+```python
+x = blue.sample_l2(N=4096, D=3)          # = qmc_sampler.sample_l2
+blue.select_precision("float64")         # settings of the spectral samplers (qmc_sampler)
+```
 
 ---
 
@@ -163,7 +179,7 @@ The algorithms and mathematical tools implemented in **blue-sampler** are based 
 
 The package strongly benefits from following libraries:
 
-- **Nufft**: The non uniform fast fourier transform (nufft) is performed using the [finufft](https://github.com/flatironinstitute/finufft) / [cufinufft](https://github.com/flatironinstitute/cufinufft)  library
+- **Nufft**: The non uniform fast fourier transform (nufft), in structure-factor-v2 and qmc-sampler, is performed using the [finufft](https://github.com/flatironinstitute/finufft) / [cufinufft](https://github.com/flatironinstitute/cufinufft)  library
   [FIN] A parallel non-uniform fast Fourier transform library based on an “exponential of semicircle” \
    kernel. A. H. Barnett, J. F. Magland, and L. af Klinteberg. SIAM J. Sci. Comput. 41(5), C479-C504 (2019).
 
@@ -192,7 +208,7 @@ ts = bluex.sample_tessels(N) #(N, 4, D=2)
 bluex.plot_tessels(ts) 
 
 # Convert to point set
-x = bluex.tessel_to_points(ts) #(N, m, D=2)
+x = bluex.tessels_to_points(ts) #(N, m, D=2)
 ```
 
 ### Pinwheel Tilings (2D only) 𖣘
@@ -209,7 +225,7 @@ bluex.plot_polygons(pw4)
 # Convert Pinwheel to point set:
 #===============================
 #sample points from the BASE pinwheel
-x0 = bluex.tessel_to_points(pw0) #(m, D=2)
+x0 = bluex.tessels_to_points(pw0) #(m, D=2)
 #then replicate the sample on the full triangulation,
 #in a fractal way
 x4 = bluex.pinwheel_transform(x0, depth = 4) #(4*5**depth, m, D=2)

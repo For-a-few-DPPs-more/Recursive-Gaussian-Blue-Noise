@@ -1,11 +1,11 @@
 """
 Console output: one status line rewritten in place, plus plain log lines.
 
-    >>> bar = Progress("[nufft]", total=120, verbose=1)
+    >>> bar = Progress("[rgbn]", total=120, verbose=1)
     >>> for _ in range(120):
     ...     bar.tick(f"loss {loss:.1e}")
     >>> bar.done()
-    [nufft] done in 3s
+    [rgbn] done in 3s
 
 Every solver reports through this module, so all outputs share the same look:
 ``label k/total [▓▓▓▓░░░░] info — ~ETA remaining`` then ``label done in 12s``.

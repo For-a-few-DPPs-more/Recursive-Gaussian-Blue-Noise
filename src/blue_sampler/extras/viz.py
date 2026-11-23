@@ -1,20 +1,21 @@
 """
 Visualisation helpers (extras).
 
-plot_tessels           Display a STIT tessellation across recursion depths.
+plot_tessels           Display a fair tessellation across recursion depths.
 plot_clusters          Display a cluster partition across recursion depths.
 plot_polygons          Display an arbitrary collection of polygons.
 """
 
 from __future__ import annotations
 
-import numpy as np
-from numpy.typing import NDArray
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.collections import PolyCollection
+from numpy.typing import NDArray
 
-from ..solvers.geometry import polygon_area
-from ..solvers import clusters as _clusters, tessels as _tessels
+from .. import cstit as _clusters
+from . import tessels as _tessels
+from .tessels import polygon_area
 
 
 def _show_or_return(fig, axes, return_fig: bool):
@@ -23,6 +24,7 @@ def _show_or_return(fig, axes, return_fig: bool):
         return fig, axes
     plt.show()
     return None
+
 
 # ---------------------------------------------------------------------
 # RECURSIVE PARTITIONS (tessels, clusters)
@@ -88,7 +90,7 @@ def plot_tessels(tessels: NDArray, axes=None, return_fig: bool = False):
 
     Examples
     --------
-    >>> blue.plot_tessels(blue.sample_tessels(N=1024))
+    >>> bluex.plot_tessels(bluex.sample_tessels(N=1024))
     """
     return _plot_levels(tessels, _tessels.merge_siblings, show_polygons, 12, axes, return_fig)
 
@@ -117,7 +119,7 @@ def plot_clusters(clusters: NDArray, axes=None, return_fig: bool = False):
 
     Examples
     --------
-    >>> blue.plot_clusters(blue.sample_clusters(N=512, D=2))
+    >>> bluex.plot_clusters(bluex.sample_clusters(N=512, D=2))
     """
     def prepare(cl):
         cl = np.random.permutation(cl.transpose(1, 0, 2)).transpose(1, 0, 2)[:, :16, :3]
@@ -159,8 +161,8 @@ def plot_polygons(
 
     Examples
     --------
-    >>> pw = blue.pinwheel_transform(blue.pinwheel_base(), depth=4)
-    >>> blue.plot_polygons(pw)
+    >>> pw = bluex.pinwheel_transform(bluex.pinwheel_base(), depth=4)
+    >>> bluex.plot_polygons(pw)
     """
     if len(polygons) >= 30_000:
         linewidth = 0

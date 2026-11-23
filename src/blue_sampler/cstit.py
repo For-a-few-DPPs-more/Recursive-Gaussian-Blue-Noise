@@ -1,18 +1,19 @@
 """
-Balanced recursive clustering in any dimension, and the cstit sampler.
+cstit: fair recursive clustering of a cloud of atoms, then moment matching in every cluster.
+(A cluster version of the fair STIT tessellations of Lotz & Klatt, any dimension.)
 
-A batch of atoms (B, K, D) is split into (2B, K/2, D): every cluster is cut in two
-equal halves at the median of its projection on a random direction of S^(D-1).
-The first B clusters are the lower halves, the last B the upper halves.
+A batch of clusters (B, K, D) is split into (2B, K/2, D): every cluster is cut in two equal
+halves at the median of its projection on a random direction. The first B clusters are the
+lower halves, the last B the upper halves.
 """
 from __future__ import annotations
 
 import numpy as np
 
-from .. import config
-from ..lattice import korobov_lattice
-from ..moments import fit_points, required_n
-from ..targets import as_target, for_cstit
+from . import config
+from .moments import fit_points, required_n
+from .targets import as_target, for_cstit
+from .warmstart import korobov_lattice
 
 CFG = config.CSTIT
 
@@ -52,14 +53,19 @@ def clusterise(depth: int, D: int, atoms: np.ndarray | None = None,
 
 
 def cstit(N: int, D: int, target=None, n_iter: int = 24, lr: float = 1.0, verbose: int = 1) -> np.ndarray:
-    """N points: fair clustering into cells, then moment matching (order 3) in each cell.
-    N must be a power of 2. target: image path, point set (K, D, a multiple of the number of
-    cells) or `targets.Target`, read as atoms by `targets.for_cstit`."""
+    """
+    N points (N a power of 2): the atoms are split into equal clusters, and each cluster is
+    replaced by a few points matching its moments up to config.CSTIT.moment_order - 1.
+
+    target: None (atoms of a Korobov lattice), an image path or a point set (K, D), K a multiple
+            of the number of cells. The points are returned in the target's frame.
+    n_iter: Levenberg-Marquardt iterations. lr: scales the initial damping.
+    """
     p = CFG.moment_order
     points_per_cell = 2 ** int(np.ceil(np.log2(required_n(p, D)) - 1e-6))
     depth = int(np.log2(N) + 1e-6) - int(np.log2(points_per_cell))
     target = None if target is None else as_target(target, D)
-    atoms = for_cstit(target, N, D, n_cells=2 ** depth)
+    atoms = for_cstit(target, N, n_cells=2 ** depth)
     cells = clusterise(depth, D, atoms, atoms_per_cluster=CFG.atoms_per_cluster)
     points = fit_points(cells, "clusters", p=p, n_iter=n_iter, n_points=points_per_cell,
                         lambda0=lr * CFG.lr_to_lambda, verbose=verbose)

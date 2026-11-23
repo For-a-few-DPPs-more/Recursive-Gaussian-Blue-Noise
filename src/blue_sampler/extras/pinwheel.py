@@ -2,8 +2,9 @@
 Conway's pinwheel tiling: each 1-2-sqrt(5) right triangle is split into 5 copies,
 rotated by arctan(1/2). The orientations are dense on the circle (isotropic tiling).
 
-pinwheel_map     affine maps of the tiling applied to points of the base triangle
-pinwheel_points  N 2D points: 3 moment-matched points per triangle, cropped to [0, 1)^2
+pinwheel_base       the base triangle
+pinwheel_transform  points of the base triangle copied onto every triangle of the tiling
+pinwheel_points     N 2D points: 3 moment-matched points per triangle, cropped to [0, 1)^2
 """
 from __future__ import annotations
 
@@ -49,8 +50,22 @@ def affine_maps(source: np.ndarray, targets: np.ndarray):
     return M, P0 - (M @ Q0[:, None])[:, :, 0]
 
 
-def pinwheel_map(points, depth: int):
-    """Apply the affine maps of the pinwheel tiling to (2,), (M, 2) or (T, M, 2) points."""
+def pinwheel_base() -> NDArray:
+    """The base Conway triangle: the 1-2-sqrt(5) right triangle of [0, 2] x [0, 1]."""
+    return BASE_TRIANGLE.copy()
+
+
+def pinwheel_transform(points: NDArray | None = None, depth: int = 4) -> NDArray:
+    """
+    Map points of the base triangle onto every triangle of a pinwheel tiling of [0, 1]^2
+    (T = 4 * 5^depth triangles, aperiodic, isotropic).
+
+    points: (2,), (M, 2) the same for every triangle, or (T, M, 2); default the triangle itself.
+    Returns (T, M, 2), or (T, 2) for a single point.
+
+    >>> flat = bluex.pinwheel_transform(bluex.tessels_to_points(bluex.pinwheel_base()), depth=4).reshape(-1, 2)
+    """
+    points = BASE_TRIANGLE if points is None else np.asarray(points)
     M, t = affine_maps(BASE_TRIANGLE, unit_square_tiling(depth))
     if points.ndim == 1:
         return np.einsum("nij,j->ni", M, points) + t
@@ -84,6 +99,5 @@ def pinwheel_points(N: int) -> NDArray:
     """N 2D points: 3 moment-matched points per triangle of a pinwheel tiling, cropped."""
     base_points = fit_points(BASE_TRIANGLE, "polygons", p=3, verbose=0)   # (3, 2)
     depth = int(np.log(N / 3) / np.log(5) + 1)
-    M, t = affine_maps(BASE_TRIANGLE, unit_square_tiling(depth))
-    x = np.einsum("nij,kj->nki", M, base_points) + t[:, None, :]
-    return crop_to_unit_cube(x, N, intensity=len(M) * len(base_points))
+    x = pinwheel_transform(base_points, depth)                         # (T, 3, 2), T x 3 >= N
+    return crop_to_unit_cube(x, N, intensity=x.shape[0] * x.shape[1])

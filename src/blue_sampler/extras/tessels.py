@@ -9,17 +9,26 @@ Each quadrilateral (4 ordered vertices) is cut by a straight line of random dire
 A direction is valid when the cut crosses two opposite edges (both pieces are
 quadrilaterals); `pool` directions are tried at once, more if none is valid.
 
-Polytopes become complicated in higher dimension: see clusters.py for any D.
+Polytopes get complicated in higher dimension: `blue_sampler.cstit` clusters atoms instead, in any D.
 """
 from __future__ import annotations
 
 import numpy as np
 
 from .. import config
-from .geometry import cross2d
 
 CFG = config.TESSELS
 UNIT_SQUARE = np.array([[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]])
+
+
+def cross2d(a, b):
+    """z-component of the cross product of 2D vectors."""
+    return a[..., 0] * b[..., 1] - a[..., 1] * b[..., 0]
+
+
+def polygon_area(vertices: np.ndarray) -> np.ndarray:
+    """Signed area (shoelace) of polygons (..., M, 2), vertices in boundary order."""
+    return 0.5 * np.sum(cross2d(vertices, np.roll(vertices, -1, axis=-2)), axis=-1)
 
 
 def _area4(P0, P1, P2, P3):
