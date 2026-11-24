@@ -9,19 +9,24 @@ blue_sampler does not implement the spectral (NUFFT) solver any more: `sample_po
   (an image is sampled i.i.d., config.SPECTRAL.image_oversample points per output point);
 - the result is mapped back to the target's frame.
 
-Backend, precision and NUFFT tolerance are qmc_sampler's own settings
-(`blue.select_backend`, `blue.select_precision`, `blue.select_nufft_tolerance`).
+Backend, precision and NUFFT tolerance are qmc_sampler's own settings.
 """
 from __future__ import annotations
 
 import numpy as np
-import qmc_sampler
+import contextlib
+import io
+with contextlib.redirect_stdout(io.StringIO()):
+    import qmc_sampler as qmc
+try:
+    qmc.select_backend({2, 3}, "cufinufft")
+except Exception:
+    qmc.select_backend({2, 3}, "finufft")
 
 from . import config
 from .targets import Target, as_target, sample_image
 
 CFG = config.SPECTRAL
-
 
 def target_points(target: Target, N: int) -> np.ndarray:
     """The target as a point cloud in the unit cube, as qmc_sampler reads it."""
@@ -41,7 +46,7 @@ def spectral(N: int, D: int, *, chi: float, n_iter: int, lbfgs_finish: bool, lr:
     target = None if target is None else as_target(target, D)
     tgt = None if target is None else target_points(target, N)
     x0 = None if init is None else (init if target is None else target.to_unit(init)) % 1.0
-    x = qmc_sampler.sample_l2(
+    x = qmc.sample_l2(
         N, D, Chi=chi, n_iter=max(1, n_iter // 2 if lbfgs_finish else n_iter), lr=lr,
         quasi_newton_finition=lbfgs_finish, warmstart=x0, target=tgt, verbose=verbose,
     )

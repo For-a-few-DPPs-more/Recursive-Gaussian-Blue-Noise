@@ -12,7 +12,8 @@ Partitions  sample_tessels, sample_clusters, tessels_to_points, clusters_to_poin
 Pinwheel    pinwheel_base, pinwheel_transform, pinwheel_points
 Plots       plot_tessels, plot_clusters, plot_polygons
 """
-from ..warmstart import WarmstartMethod, sobol, warmstart_points
+from ..warmstart import WarmstartMethod, warmstart_points
+from ..lattices import sobol
 from .pinwheel import pinwheel_base, pinwheel_points, pinwheel_transform
 from .sampling import (
     clusters_to_points,

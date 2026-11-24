@@ -71,6 +71,7 @@ x = blue.sample_points(N, D, method="rgbn") #(N, D)
 | `nufft/nufft+` | spectral optimisation of the structure factor, delegated to [qmc-sampler](https://pypi.org/project/qmc-sampler/) |
 | `cstit`        | Fair-STIT inspired clustering (clusters replace complex polygon geometry)       |
 | `latjit`       | fast and simple lattice jittering        |
+| `latcurl`      | more advanced jittering (curl noise), better. J. A. Bærentzen, J. R. Frisvad, and J. Martínez.       |
 
 ---
 
@@ -84,13 +85,13 @@ x = blue.sample_points(N, D, method="rgbn") #(N, D)
 
 
 All presented samplers but the original GBN (quadratic complexity), having near linear complexity in the number of points, are thus intended to scale up to million points beyond the minute (GPU) or 20 minutes (CPU) in low dimension (<=3d). They all face increasing challenges when the dimension grow, whether it being the hyperuniformity strength or the required sampling runtime.
-The recommanded default is: 
+By default, sample_points uses `rgbn` , but many other sampling methods are provided. The recommanded method is: 
  - dimension D = 2: `rgbn` (non-uniform target), `nufft` (uniform points)
  - dimension D = 3: `nufft`
  - dimension D = 4/5: `rgbn` or `gaussian` (depending on N + gpu availability)
- - dimension 6 or more: `gaussian`
+ - dimension 6 or more: `latcurl`
 
- If sampling runtime is realy a problem, then  `cstit ` is recommended (much faster, but not so good blue noise)
+ If sampling runtime is realy a problem, then  `latcurl` or `cstit` are recommended (fast, any dimension)
 . QUality can be checked with the `structure factor`.
 
 
@@ -117,22 +118,6 @@ The recommanded default is:
 > ```python
 >blue.plot_structure_factor(points)
 > ```
-
----
-
-## Companion packages
-
-`blue-sampler` installs and re-exports two packages of the same project, so that `import blue_sampler as blue` is all you need:
-
-| Package | Re-exported in `blue` | Role |
-|---------|-----------------------|------|
-| [structure-factor-v2](https://pypi.org/project/structure-factor-v2/) | `structure_factor`, `structure_factor_and_average`, `plot`, `plot_structure_factor` | structure factor $S(k)$ (scattering intensity, Kaiser taper, several backends) and plots; also provides the Korobov / jittered lattices (`latjit`, `"Goodlattice"` warm starts) |
-| [qmc-sampler](https://pypi.org/project/qmc-sampler/) | `sample_l2`, `sample_l1`, `sample_wd`, `select_backend`, `select_precision`, `select_nufft_tolerance` | spectral samplers; also behind `method="nufft"/"nufft+"`, `image_to_points(fast=True)` and `bluex.image_to_quads` |
-
-```python
-x = blue.sample_l2(N=4096, D=3)          # = qmc_sampler.sample_l2
-blue.select_precision("float64")         # settings of the spectral samplers (qmc_sampler)
-```
 
 ---
 
@@ -177,9 +162,14 @@ The algorithms and mathematical tools implemented in **blue-sampler** are based 
 - **Sobol sequences**  
   Wrapped from `scipy.stats.qmc.Sobol` (SciPy).
 
+- **Curl noise** (latcurl)
+   J. A. Bærentzen, J. R. Frisvad, and J. Martínez. Curl Noise Jittering. 
+   SIGGRAPH Asia 2023 Conference Papers, article 88, 2023. 
+   doi:10.1145/3610548.3618163, code: jonasmb/curlnoisejittering. 
+
 The package strongly benefits from following libraries:
 
-- **Nufft**: The non uniform fast fourier transform (nufft), in structure-factor-v2 and qmc-sampler, is performed using the [finufft](https://github.com/flatironinstitute/finufft) / [cufinufft](https://github.com/flatironinstitute/cufinufft)  library
+- **Nufft**: The non uniform fast fourier transform (nufft) is performed using the [finufft](https://github.com/flatironinstitute/finufft) / [cufinufft](https://github.com/flatironinstitute/cufinufft)  library
   [FIN] A parallel non-uniform fast Fourier transform library based on an “exponential of semicircle” \
    kernel. A. H. Barnett, J. F. Magland, and L. af Klinteberg. SIAM J. Sci. Comput. 41(5), C479-C504 (2019).
 

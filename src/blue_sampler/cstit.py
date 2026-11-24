@@ -13,7 +13,7 @@ import numpy as np
 from . import config
 from .moments import fit_points, required_n
 from .targets import as_target, for_cstit
-from .warmstart import korobov_lattice
+from .lattices import korobov_lattice
 
 CFG = config.CSTIT
 

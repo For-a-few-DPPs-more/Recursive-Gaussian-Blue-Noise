@@ -12,7 +12,7 @@ from ..moments import fit_points
 from ..spectral import fast_stippling
 from ..targets import as_target, for_cstit
 from ..torus import integer_grid
-from ..warmstart import warmstart_points
+from ..lattices import korobov_lattice
 from .tessels import tessellate
 from .viz import plot_polygons
 
@@ -65,11 +65,11 @@ def sample_tessels(N: int = 2 ** 15, D: int = 2, target=None, atoms_per_tessel: 
     return (quads, atoms) if return_atoms else quads
 
 
-def sample_clusters(N: int = 2 ** 15, D: int = 2, target="Goodlattice", atoms_per_cluster: int = 8) -> NDArray:
+def sample_clusters(N: int = 2 ** 15, D: int = 2, target="korobov", atoms_per_cluster: int = 8) -> NDArray:
     """
     Split a point set into N balanced clusters (N, K/N, D), N a power of 2.
 
-    target: "Goodlattice", "Sobol" or None (uniform atoms: N * atoms_per_cluster points of that
+    target: "korokov" (a korobov lattice), None (uniform atoms: N * atoms_per_cluster points of that
     generator, None meaning Sobol), or a target (see `blue_sampler.targets`): an image (D = 2,
     N * atoms_per_cluster i.i.d. atoms) or a point set (K, D), K a multiple of N. The clusters
     come out in the frame of the target.
@@ -77,8 +77,8 @@ def sample_clusters(N: int = 2 ** 15, D: int = 2, target="Goodlattice", atoms_pe
     >>> pts = bluex.clusters_to_points(bluex.sample_clusters(N=1024)).reshape(-1, 2)
     """
     depth = _depth(N)
-    if target is None or (isinstance(target, str) and target in ("Goodlattice", "Sobol")):
-        return clusterise(depth, D, warmstart_points(N * atoms_per_cluster, D, target))
+    if target is None or (isinstance(target, str) and target == "korobov"):
+        return clusterise(depth, D, korobov_lattice(N * atoms_per_cluster, D))
     target = as_target(target, D)
     atoms = for_cstit(target, N, n_cells=N, n_atoms=N * atoms_per_cluster)
     return target.from_unit(clusterise(depth, D, atoms))

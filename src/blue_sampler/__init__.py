@@ -7,7 +7,6 @@ uniform or following a target density.
 >>> blue.plot(x)
 >>> blue.plot_structure_factor(x)
 >>> x = blue.image_to_points("zebra.jpg")          # stippling
->>> x = blue.sample_l2(N=1_000, D=3)               # spectral QMC sampler (qmc_sampler)
 
 Layout
 ------
@@ -25,15 +24,7 @@ config            tunable constants, editable in place
 backend           CuPy / KeOps detection, check_gpu
 progress          console output
 extras/           tessellations, clusters, pinwheel tilings and their plots (import separately)
-
-Re-exported from companion packages (imported here, plus structure_factor_v2.lattices in warmstart):
-structure_factor_v2   structure_factor, structure_factor_and_average, plot, plot_structure_factor
-qmc_sampler           sample_l2, sample_l1, sample_wd, select_backend, select_precision,
-                      select_nufft_tolerance
 """
-import contextlib as _contextlib
-import io as _io
-
 from structure_factor_v2 import (
     plot,
     plot_structure_factor,
@@ -41,27 +32,15 @@ from structure_factor_v2 import (
     structure_factor_and_average,
 )
 
-with _contextlib.redirect_stdout(_io.StringIO()):     # qmc_sampler prints a banner on import
-    from qmc_sampler import (
-        sample_l1,
-        sample_l2,
-        sample_wd,
-        select_backend,
-        select_nufft_tolerance,
-        select_precision,
-    )
-
 from . import config
 from .api import image_to_points, sample_points
 from .backend import check_gpu
 
 __all__ = [
     "sample_points", "image_to_points",
-    "sample_l2", "sample_l1", "sample_wd",
-    "select_backend", "select_precision", "select_nufft_tolerance",
     "structure_factor", "structure_factor_and_average",
     "plot", "plot_structure_factor",
     "check_gpu", "config",
 ]
 
-__version__ = "5.0.0"
+__version__ = "5.0.1"

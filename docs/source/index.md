@@ -46,6 +46,31 @@ Everything below is available directly from `import blue_sampler as blue`.
    blue_sampler.check_gpu
 ```
 
+### Configuration
+
+Every tunable constant lives in `blue_sampler.config`, as dataclass instances that can be
+edited in place before sampling:
+
+```python
+import blue_sampler as blue
+blue.config.RGBN.presets[2].lr_spatial = 0.2
+blue.config.ADAPTIVE.grid_size = 1024
+```
+
+| Object                     | Used by                                                  |
+|----------------------------|----------------------------------------------------------|
+| `config.SAMPLE_POINTS`     | routing rules of `sample_points` (exact solver, KeOps)   |
+| `config.BRUTEFORCE`        | `gaussian` (exact O(N²) gaussian blue noise)             |
+| `config.RGBN`              | `rgbn` (per-dimension presets, neighbour search)         |
+| `config.ADAPTIVE`          | adaptive samplers, `image_to_points`                     |
+| `config.SPECTRAL`          | `nufft`, `nufft+`, `image_to_points(fast=True)`          |
+| `config.CSTIT`             | `cstit`                                                  |
+| `config.TESSELS`           | `extras.sample_tessels`                                  |
+| `config.MOMENTS`           | moment matching (`cstit`, `*_to_points`, pinwheel)       |
+| `config.TARGETS`           | images and point sets read as densities                  |
+
+See {doc}`blue_sampler` for every field.
+
 ## Adaptive sampling (image stippling)
 
 Adaptive Gaussian blue noise, 2D only, kept apart from the rest of the package

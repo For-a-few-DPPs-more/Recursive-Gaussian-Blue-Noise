@@ -13,7 +13,7 @@ copyright = "2026, Armand de Cacqueray"
 try:
     from blue_sampler import __version__ as release
 except ImportError:
-    release = "4.0.0"
+    release = "5.0.1"
 version = release
 
 # -- General configuration ---------------------------------------------------
@@ -27,17 +27,17 @@ extensions = [
     "sphinx_autodoc_typehints",
 ]
 
-templates_path = ["_templates"]
+templates_path = []
 exclude_patterns = []
 
 # Generate autosummary pages automatically
 autosummary_generate = True
 
-# Sensible defaults for API docs
+# Sensible defaults for API docs.
+# Note: a key present here *enables* the option, whatever its value ("imported-members": False
+# would still document imported names), so only list the options that should be on.
 autodoc_default_options = {
     "members": True,
-    "imported-members": False,
-    "undoc-members": False,
     "show-inheritance": True,
 }
 
@@ -53,3 +53,15 @@ napoleon_numpy_docstring = True
 
 html_theme = "sphinx_rtd_theme"
 html_static_path = []
+
+# -- Docstring preprocessing -------------------------------------------------
+# The docstrings are written as plain text: |x| means a norm, not an rST substitution.
+# Escape the pipes so that they show up as written instead of breaking the build.
+
+def _escape_pipes(app, what, name, obj, options, lines):
+    for i, line in enumerate(lines):
+        lines[i] = line.replace("|", r"\|")
+
+
+def setup(app):
+    app.connect("autodoc-process-docstring", _escape_pipes, priority=600)

@@ -17,10 +17,11 @@ from .progress import Progress, log
 from .rgbn import rgbn
 from .spectral import fast_stippling, spectral
 from .targets import as_target
-from .warmstart import WarmstartMethod, jittered_lattice, warmstart_points
+from .warmstart import WarmstartMethod, warmstart_points
+from .lattices import jittered_lattice, curled_lattice
 
-Method = Literal["rgbn", "gaussian", "nufft", "nufft+", "latjit", "cstit"]
-METHODS = ("rgbn", "gaussian", "nufft", "nufft+", "latjit", "cstit")
+Method = Literal["rgbn", "gaussian", "nufft", "nufft+", "latjit", "latcurl", "cstit"]
+METHODS = ("rgbn", "gaussian", "nufft", "nufft+", "latjit", "latcurl", "cstit")
 TARGET_METHODS = ("rgbn", "gaussian", "nufft", "nufft+", "cstit")
 
 
@@ -53,10 +54,11 @@ def sample_points(
         "nufft+"    same, more modes constrained and an L-BFGS finish: slower, better.
         "cstit"     fair clustering + moment matching. Fast, lower quality, N a power of 2.
         "latjit"    a randomly jittered lattice. Instant, ignores every other option.
+        "latcurl"   a lattice jittered with the curl noise (random divergence free field).
     lr
         Multiplier of the solver's step sizes. Lower it if the result looks noisy.
     warmstart
-        Starting points of the descent (rgbn, gaussian, nufft): "Sobol", "Goodlattice" or an
+        Starting points of the descent (rgbn, gaussian, nufft): "Sobol", "latjit", "latcurl" or an
         (N, D) array (in the target's frame if there is a target). Given a warm start, rgbn
         skips its coarse-to-fine recursion. Default: uniform random points.
     n_iter_scale
@@ -80,6 +82,8 @@ def sample_points(
 
     if method == "latjit":
         return jittered_lattice(N, D)
+    if method == "latcurl":
+        return curled_lattice(N, D)
 
     if method == "cstit":
         if N & (N - 1):

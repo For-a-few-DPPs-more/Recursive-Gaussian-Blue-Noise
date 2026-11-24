@@ -16,17 +16,17 @@ from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
-from structure_factor_v2.lattices import jittered_lattice, korobov_lattice
+from .lattices import jittered_lattice, curled_lattice, sobol
 
-__all__ = ["WarmstartMethod", "warmstart_points", "sobol", "korobov_lattice", "jittered_lattice"]
+__all__ = ["WarmstartMethod", "warmstart_points", "sobol", "jittered_lattice", "curled_lattice"]
 
-WarmstartMethod = Literal["Goodlattice", "Sobol"]
+WarmstartMethod = Literal["latjit", "latcurl", "Sobol"]
 
 
 def warmstart_points(N: int, D: int, method: WarmstartMethod | NDArray | None = None,
                      seed: int | None = None) -> NDArray:
     """
-    N points in [0, 1)^D. method: None or "Sobol", "Goodlattice" (Korobov lattice, random
+    N points in [0, 1)^D. method: None or "Sobol", "latjit" (Korobov lattice, random
     shift), or an (N, D) array, returned as a copy.
     """
     if isinstance(method, np.ndarray):
@@ -35,12 +35,8 @@ def warmstart_points(N: int, D: int, method: WarmstartMethod | NDArray | None = 
         return method.copy()
     if method in (None, "Sobol"):
         return sobol(N, D, seed=seed)
-    if method == "Goodlattice":
-        return korobov_lattice(N, D, seed=seed)
-    raise ValueError(f"unknown warmstart {method!r}: expected 'Sobol', 'Goodlattice' or an (N, D) array")
-
-
-def sobol(N: int = 2 ** 15, D: int = 2, seed: int | None = None) -> NDArray:
-    """N points of a scrambled Sobol sequence (best with N a power of 2, SciPy warns otherwise)."""
-    from scipy.stats import qmc
-    return qmc.Sobol(d=D, seed=seed).random(N)
+    if method == "latjit":
+        return jittered_lattice(N, D, seed=seed)
+    if method == "latcurl":
+        return curled_lattice(N, D, seed=seed)
+    raise ValueError(f"unknown warmstart {method!r}: expected a {WarmstartMethod} or an (N, D) array")
