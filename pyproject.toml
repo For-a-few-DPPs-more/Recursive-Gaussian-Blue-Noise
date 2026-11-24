@@ -47,6 +47,9 @@ gpu13 = [
 keops = [
     "pykeops",
 ]
+test = [
+    "pytest",
+]
 
 [project.urls]
 Repository = "https://github.com/For-a-few-DPPs-more/Recursive-Gaussian-Blue-Noise"
@@ -67,3 +70,8 @@ exclude = [
 
 [tool.ruff]
 line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: quality checks on larger samples (deselect with '-m \"not slow\"')"]
+addopts = "-m 'not slow'"
