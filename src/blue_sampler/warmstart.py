@@ -1,5 +1,14 @@
 """
-Initial point clouds in [0, 1)^D (warm starts) and cheap low-discrepancy samplers.
+Cheap, well spread point sets in [0, 1)^D: starting points of the solvers, atoms of the partitions.
+
+    sobol              scrambled Sobol sequence (scipy)
+    korobov_lattice    rank-1 lattice (structure_factor_v2.lattices)
+    jittered_lattice   Korobov lattice, every point jittered in its cell (method "latjit",
+                       structure_factor_v2.lattices)
+    warmstart_points   one of the above by name, or a user array
+
+The lattices live in structure_factor_v2: this module is blue_sampler's only internal import
+of it (everything else goes through here).
 """
 from __future__ import annotations
 
@@ -7,48 +16,18 @@ from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
+from .lattices import jittered_lattice, curled_lattice, sobol
 
-from .lattice import korobov_lattice
+__all__ = ["WarmstartMethod", "warmstart_points", "sobol", "jittered_lattice", "curled_lattice"]
 
-WarmstartMethod = Literal["Goodlattice", "Sobol"]
+WarmstartMethod = Literal["latjit", "latcurl", "Sobol"]
 
 
-def sobol(N: int = 2 ** 15, D: int = 2, seed: int | None = None) -> NDArray:
+def warmstart_points(N: int, D: int, method: WarmstartMethod | NDArray | None = None,
+                     seed: int | None = None) -> NDArray:
     """
-    N points of a scrambled Sobol sequence in [0, 1)^D (wrapper of ``scipy.stats.qmc.Sobol``).
-
-    For best uniformity N should be a power of 2 (SciPy warns otherwise).
-    """
-    from scipy.stats import qmc
-    return qmc.Sobol(d=D, seed=seed).random(N)
-
-
-def jittered_lattice(N: int, D: int) -> NDArray:
-    """A Korobov lattice, randomly translated, each point jittered within its cell."""
-    x = korobov_lattice(N, D) + np.random.rand(1, D)
-    x = x + (np.random.rand(N, D) - 0.5) / N ** (1 / D)
-    return x % 1.0
-
-
-def warmstart_points(
-    N: int,
-    D: int,
-    method: WarmstartMethod | NDArray | None = None,
-    seed: int | None = None,
-) -> NDArray:
-    """
-    Generate an initial point cloud in [0, 1)^D.
-
-    Parameters
-    ----------
-    N, D : int
-        Number of points and ambient dimension.
-    method : {None, "Goodlattice", "Sobol"} or ndarray of shape (N, D)
-        None and "Sobol": scrambled Sobol sequence. "Goodlattice": optimised Korobov
-        lattice with a random shift.
-        An array is returned as a copy.
-    seed : int, optional
-        Seed of the stochastic generators (Sobol, Goodlattice).
+    N points in [0, 1)^D. method: None or "Sobol", "latjit" (Korobov lattice, random
+    shift), or an (N, D) array, returned as a copy.
     """
     if isinstance(method, np.ndarray):
         if method.shape != (N, D):
@@ -56,7 +35,8 @@ def warmstart_points(
         return method.copy()
     if method in (None, "Sobol"):
         return sobol(N, D, seed=seed)
-    if method == "Goodlattice":
-        return korobov_lattice(N, D, seed=seed)
-    raise ValueError(f"unsupported warmstart={method!r}; expected None, 'Goodlattice', "
-                     "'Sobol', or an ndarray of shape (N, D).")
+    if method == "latjit":
+        return jittered_lattice(N, D, seed=seed)
+    if method == "latcurl":
+        return curled_lattice(N, D, seed=seed)
+    raise ValueError(f"unknown warmstart {method!r}: expected a {WarmstartMethod} or an (N, D) array")

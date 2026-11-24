@@ -1,105 +1,120 @@
 """
-Every tunable constant of the package, grouped by component.
-
-Changing a parameter
---------------------
-Small exemple: tuning the RGBN learning rate in 2D:
+All Tunable constants of the package. 
+If the provided defaults feel bad, any parameter can be tuned:
 
 >>> import blue_sampler as blue
->>> object.__setattr__(blue.config.RGBN.presets[2], "lr_spatial", 0.2)
+>>> blue.config.RGBN.presets[2].lr_spatial = 0.2
 """
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
 
 def by_dim(table: dict, D: int):
-    """table[D], with D clamped to the dimensions present in the table."""
+    """table[D], D clamped to the range of dimensions present in the table."""
     return table[min(max(D, min(table)), max(table))]
 
 
-@dataclass(frozen=True)
+@dataclass
 class SamplePointsConfig:
     """Routing rules of `sample_points`."""
     bruteforce_max_n: int = 1_000          # N <= this: exact gaussian solver, whatever the method
     keops_min_n: int = 5_000               # KeOps kernels are only worth it above this N
-    target_iter_factor: int = 2            # a target (nufft, cstit) needs more iterations
+    target_iter_factor: int = 2            # a target (nufft) needs more iterations
 
 
-@dataclass(frozen=True)
+@dataclass
 class BruteforceConfig:
     """Exact O(N^2) gaussian blue noise."""
     learning_rate: dict = field(default_factory=lambda: {2: 0.3, 3: 0.1, 4: 0.05, 5: 0.01})
     learning_rate_high_d: float = 0.001    # D > 5
-    sigma_scale: float = 1.0               # kernel width, in units of the mean spacing N^(-1/D)
-    periodic_kernel_min_sigma: float = 0.1 # wide kernels use the smooth periodic formulation
+    sigma_scale: float = 1.0               # kernel width, in mean spacings N^(-1/D)
+    periodic_kernel_min_sigma: float = 0.1 # wider kernels use the smooth periodic formula
     min_iter: int = 20
     iter_divisor: dict = field(default_factory=lambda: {2: 4, 3: 100})  # n_iter = max(min_iter, N // divisor)
 
 
-@dataclass(frozen=True)
-class RGBNPresetConfig:
-    spatial_radius: float      # neighbourhood (in grid cells) of the short-range kernel
-    spectral_radius: float     # radius of the wave vectors of the long-range kernel
+@dataclass
+class RGBNPreset:
+    spatial_radius: float      # neighbourhood of the short-range kernel, in grid cells
+    spectral_radius: float     # radius of the wave vectors of the long-range term
     lr_spatial: float
     lr_spectral: float
-    expansion_factor: float    # size of the simplex used to clone a parent into children
-    sigma_scale: float         # kernel width, sigma^2 = 2 * sigma_scale * spacing^2
+    expansion_factor: float    # size of the simplex a parent is cloned on, in mean spacings
+    sigma_scale: float         # kernel width: sigma^2 = 2 * sigma_scale * spacing^2
 
 
-@dataclass(frozen=True)
+@dataclass
 class RGBNConfig:
     """Recursive Gaussian Blue Noise."""
     presets: dict = field(default_factory=lambda: {
-        2: RGBNPresetConfig(7, 7, 0.100, 0.1, 0.3, 1.0),
-        3: RGBNPresetConfig(5, 5, 0.030, 0.1, 0.3, 1.0),
-        4: RGBNPresetConfig(4, 4, 0.010, 0.1, 1.0, 0.5),
-        5: RGBNPresetConfig(3, 3, 0.003, 0.1, 1.0, 0.5),
+        2: RGBNPreset(7, 7, 0.100, 0.1, 0.3, 1.0),
+        3: RGBNPreset(5, 5, 0.030, 0.1, 0.3, 1.0),
+        4: RGBNPreset(4, 4, 0.010, 0.1, 1.0, 0.5),
+        5: RGBNPreset(3, 3, 0.003, 0.1, 1.0, 0.5),
     })
     bruteforce_max_n: dict = field(default_factory=lambda: {2: 1_000, 3: 2_000, 4: 3_000, 5: 4_000})
-    root_max_n: int = 3_000                # below this a level is solved directly (no recursion)
-    root_n_iter: int = 20                  # iterations of a root level
+    root_max_n: int = 3_000                # a level this small is not split further
+    root_n_iter: int = 20                  # neighbour updates of a root level
     steps_per_iter: int = 10               # descent steps between two neighbour updates
     grid_max_dim: int = 4                  # grid neighbours up to this D, Verlet lists above
     periodic_kernel_min_sigma2: float = 0.03
-    verlet_skin_factor: int = 3            # skin = verlet_skin_factor x neighbour list size
+    verlet_skin_factor: int = 3            # skin size = verlet_skin_factor x neighbour list size
     verlet_chunk_elems: int = 2 ** 25      # memory budget (floats) of the neighbour searches
 
 
-@dataclass(frozen=True)
-class NufftConfig:
-    """Spectral optimisation of the structure factor."""
+@dataclass
+class AdaptiveConfig:
+    """Adaptive gaussian blue noise (stippling). Defaults from stipple, the reference."""
+    grid_size: int = 512                   # side of the density grid
+    levels: int = 14                       # pyramid of blurred gradients: one octave of variance per level,
+                                           # from half a pixel of standard deviation up to ~45 pixels
+    lr: float = 0.3
+    max_move: float = 0.3                  # longest move of a dot in one step, in local spacings
+    cutoff: float = 30.0                   # pair kernel truncated at exp(-cutoff)
+    a_min: float = 1 / 32                  # kernels stop growing below this density (x the mean)
+    steps_per_iter: int = 10               # descent steps between two re-sorts of the grid
+    root_max_n: int = 3_000                # size of the coarsest level
+    root_n_iter: int = 20                  # passes of the coarsest level (and of a warm start)
+    iter_factor: int = 2                   # passes per level = iter_factor * n_iter_scale
+    gbn_iter_factor: int = 7               # adaptive_gbn: passes = gbn_iter_factor * n_iter_scale
+    expansion_factor: float = 0.3          # size of the cloning triangle, in local spacings
+    stencil: int = 7                       # grid neighbourhood of the pair sum (~6 % density error
+                                           # where pale areas meet dark ones)
+    refine_stencil: int = 10               # adaptive_refine: ~1 % error, ~2x the cost per step
+
+
+@dataclass
+class SpectralConfig:
+    """Spectral blue noise, delegated to qmc_sampler.sample_l2 (`blue_sampler.spectral`)."""
     chi: dict = field(default_factory=lambda: {"nufft": 0.35, "nufft+": 0.43})
-    newton_finition: dict = field(default_factory= lambda: {"nufft": False, "nufft+": True})
+    lbfgs_finish: dict = field(default_factory=lambda: {"nufft": False, "nufft+": True})
     iter_factor: dict = field(default_factory=lambda: {"nufft": 20, "nufft+": 80})
     iter_factor_high_d: int = 10           # D > 3 converges faster
-    max_dim: int = 3                       # finufft supports D <= 3; brute-force kernels above
-    eps: dict = field(default_factory=lambda: {"float32": 1e-4, "float64": 1e-8})
-    initial_step: float = 0.1              # in units of the mean spacing
-    step_increase: float = 1.05            # "bold driver" adaptive step
-    step_decrease: float = 0.8
+    max_dim: int = 3                       # D <= max_dim uses iter_factor, above iter_factor_high_d
+    image_oversample: int = 32             # an image target is sampled i.i.d. at this many points per output point
     fast_stippling: dict = field(default_factory=lambda: {"chi": 1.0, "n_iter": 40, "lr": 3.0})
 
-@dataclass(frozen=True)
+
+@dataclass
 class CstitConfig:
-    """Fair STIT clustering + moment matching."""
+    """Fair clustering + moment matching."""
     iter_factor: int = 4
     atoms_per_cluster: int = 32
     moment_order: int = 3
     lr_to_lambda: float = 0.01             # Levenberg-Marquardt damping = lr * lr_to_lambda
 
 
-@dataclass(frozen=True)
+@dataclass
 class TesselsConfig:
     """Fair quadrilateral splits."""
-    pool: int = 5                          # random directions tried per split
+    pool: int = 5                          # random directions tried at once per split
     max_retries: int = 8
     pool_growth: int = 2
     eps: float = 1e-9
 
 
-@dataclass(frozen=True)
+@dataclass
 class MomentsConfig:
     """Levenberg-Marquardt moment matching."""
     max_p: int = 100
@@ -110,39 +125,24 @@ class MomentsConfig:
     tol: float = 1e-30
 
 
-@dataclass(frozen=True)
+@dataclass
 class TargetsConfig:
-    """Targets: images and point sets as densities (`blue_sampler.targets`)."""
+    """Images and point sets read as densities (`blue_sampler.targets`)."""
     image_shape: tuple = (512, 512)
     image_blur_sigma: float = 1.0          # pixels, before i.i.d. sampling of an image
     image_jitter: float = 1 / 2000
     cstit_oversample: int = 32             # i.i.d. atoms per output point when cstit reads an image
-    points_blur_spacing: float = 1.0       # pseudo image of a point set: blur in mean spacings
+    points_blur_spacing: float = 1.0       # pseudo image of a point set: blur in mean spacings...
     points_blur_min: float = 1.0           # ... and at least this many pixels
-    points_margin: float = 0.05            # point sets outside [0, 1]^D: margin of the unit cube kept empty
-                                           # (the cube is a torus: the support must not touch itself)
-
-
-@dataclass(frozen=True)
-class StructureFactorConfig:
-    margin: float = 0.1
-    max_beta: float = 15.0                 # Kaiser taper: leakage ~exp(-2 beta) ~ 1e-13
-    k_max: float = 2.0                     # in units of the inter-particle wave number
-    eps: dict = field(default_factory=lambda: {"float32": 1e-5, "float64": 1e-12})
-    nufft_chunk: int = 400_000             # points per 3D NUFFT call
-    bruteforce_chunk_elems: int = 8_000_000
-    low_mode_fraction: float = 0.25        # D >= 4: share of exhaustive low modes
-    radial_bins: dict = field(default_factory=lambda: {1: (10, 50), 2: (5, 25), 3: (2, 6)})  # (width, start) in |n|^2
-    smoothing: float = 0.01                # gaussian smoothing width, fraction of the log-k range
-    resolution_divisor: int = 10           # D >= 4: wave vectors evaluated = resolution / divisor
-
+    points_margin: float = 0.05            # point sets moved into the unit cube keep this margin empty
+                                           # (the cube is a torus: the support must not touch itself
 
 SAMPLE_POINTS = SamplePointsConfig()
 BRUTEFORCE = BruteforceConfig()
 RGBN = RGBNConfig()
-NUFFT = NufftConfig()
+ADAPTIVE = AdaptiveConfig()
+SPECTRAL = SpectralConfig()
 CSTIT = CstitConfig()
 TESSELS = TesselsConfig()
 MOMENTS = MomentsConfig()
 TARGETS = TargetsConfig()
-STRUCTURE_FACTOR = StructureFactorConfig()

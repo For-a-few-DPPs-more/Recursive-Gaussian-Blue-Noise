@@ -68,9 +68,10 @@ x = blue.sample_points(N, D, method="rgbn") #(N, D)
 |----------------|------------------------------------------|
 | `gaussian`     | original Gaussian-Blue-Noise sampler (high quality, slow), A. G. M. Ahmed, J. Ren, and P. Wonka.  |
 | `rgbn`         | Recursive Gaussian-Blue-Noise (speed-up GBN with recursive initialisation)      |
-| `nufft/nufft+` | Non-Uniform FFT (speed-up spectral methods with fast fourier transform)    |
+| `nufft/nufft+` | spectral optimisation of the structure factor, delegated to [qmc-sampler](https://pypi.org/project/qmc-sampler/) |
 | `cstit`        | Fair-STIT inspired clustering (clusters replace complex polygon geometry)       |
 | `latjit`       | fast and simple lattice jittering        |
+| `latcurl`      | more advanced jittering (curl noise), better. J. A. Bærentzen, J. R. Frisvad, and J. Martínez.       |
 
 ---
 
@@ -84,13 +85,13 @@ x = blue.sample_points(N, D, method="rgbn") #(N, D)
 
 
 All presented samplers but the original GBN (quadratic complexity), having near linear complexity in the number of points, are thus intended to scale up to million points beyond the minute (GPU) or 20 minutes (CPU) in low dimension (<=3d). They all face increasing challenges when the dimension grow, whether it being the hyperuniformity strength or the required sampling runtime.
-The recommanded default is: 
+By default, sample_points uses `rgbn` , but many other sampling methods are provided. The recommanded method is: 
  - dimension D = 2: `rgbn` (non-uniform target), `nufft` (uniform points)
  - dimension D = 3: `nufft`
  - dimension D = 4/5: `rgbn` or `gaussian` (depending on N + gpu availability)
- - dimension 6 or more: `gaussian`
+ - dimension 6 or more: `latcurl`
 
- If sampling runtime is realy a problem, then  `cstit ` is recommended (much faster, but not so good blue noise)
+ If sampling runtime is realy a problem, then  `latcurl` or `cstit` are recommended (fast, any dimension)
 . QUality can be checked with the `structure factor`.
 
 
@@ -103,13 +104,13 @@ The recommanded default is:
 > ```bash
 > pip install blue-sampler[gpu13]
 > ```
-> If the CUDA installation fails, you may need to install `jax`, `cupy`, and `cufinufft` manually. Once installed, you can check that GPU support is correctly configured by running:
+> If the CUDA installation fails, you may need to install `jax`, `cupy`, and `cufinufft` manually (`cufinufft` is used by the structure factor and the spectral samplers). Once installed, you can check that GPU support is correctly configured by running:
 > ```python
 > import blue_sampler
 > blue_sampler.check_gpu()
 > ```
 
-> **Note on Keops acceleration**: gaussian and nufft (if dimension D >= 4) samplers will get much faster on gpu, if `pykeops` is installed on the hardware along with all it's dependency (which will be automatically detected). This is optional, and mainly usefull to sample large datasets on a GPU.
+> **Note on Keops acceleration**: gaussian and nufft samplers will get much faster on gpu, if `pykeops` is installed on the hardware along with all it's dependency (which will be automatically detected). This is optional, and mainly usefull to sample large datasets on a GPU.
 >See [pykeops](https://www.kernel-operations.io/keops/python/installation.html#requirements) documentation
 
 > **Note on structure factor**: The structure factor characterizes the density fluctuations of the points in Fourier space and is equivalent to the **power spectrum** (up to normalization). The estimation of structure factor assumes that the points domain is the unit hypercube and uses the standard `scattering intensity` estimator.
@@ -161,6 +162,11 @@ The algorithms and mathematical tools implemented in **blue-sampler** are based 
 - **Sobol sequences**  
   Wrapped from `scipy.stats.qmc.Sobol` (SciPy).
 
+- **Curl noise** (latcurl)
+   J. A. Bærentzen, J. R. Frisvad, and J. Martínez. Curl Noise Jittering. 
+   SIGGRAPH Asia 2023 Conference Papers, article 88, 2023. 
+   doi:10.1145/3610548.3618163, code: jonasmb/curlnoisejittering. 
+
 The package strongly benefits from following libraries:
 
 - **Nufft**: The non uniform fast fourier transform (nufft) is performed using the [finufft](https://github.com/flatironinstitute/finufft) / [cufinufft](https://github.com/flatironinstitute/cufinufft)  library
@@ -192,7 +198,7 @@ ts = bluex.sample_tessels(N) #(N, 4, D=2)
 bluex.plot_tessels(ts) 
 
 # Convert to point set
-x = bluex.tessel_to_points(ts) #(N, m, D=2)
+x = bluex.tessels_to_points(ts) #(N, m, D=2)
 ```
 
 ### Pinwheel Tilings (2D only) 𖣘
@@ -209,7 +215,7 @@ bluex.plot_polygons(pw4)
 # Convert Pinwheel to point set:
 #===============================
 #sample points from the BASE pinwheel
-x0 = bluex.tessel_to_points(pw0) #(m, D=2)
+x0 = bluex.tessels_to_points(pw0) #(m, D=2)
 #then replicate the sample on the full triangulation,
 #in a fractal way
 x4 = bluex.pinwheel_transform(x0, depth = 4) #(4*5**depth, m, D=2)

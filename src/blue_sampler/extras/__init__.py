@@ -1,32 +1,28 @@
 """
-Extras: tessellations, clusters, pinwheels and their plots.
+Extras: fair partitions (tessellations, clusters), pinwheel tilings, and their plots.
+Not imported by `blue_sampler` itself:
 
-Not imported by `blue_sampler` itself; import it explicitly.
-
->>> from blue_sampler import extras
->>> t = extras.sample_tessels(N=2 ** 12)
->>> extras.plot_tessels(t)
->>> x = extras.tessels_to_points(t)
+>>> import blue_sampler.extras as bluex
+>>> t = bluex.sample_tessels(N=2 ** 12)
+>>> bluex.plot_tessels(t)
+>>> x = bluex.tessels_to_points(t)
 
 Points      tile, warmstart_points, sobol
 Partitions  sample_tessels, sample_clusters, tessels_to_points, clusters_to_points, image_to_quads
 Pinwheel    pinwheel_base, pinwheel_transform, pinwheel_points
 Plots       plot_tessels, plot_clusters, plot_polygons
 """
-from .extras import (
-    WarmstartMethod,
+from ..warmstart import WarmstartMethod, warmstart_points
+from ..lattices import sobol
+from .pinwheel import pinwheel_base, pinwheel_points, pinwheel_transform
+from .sampling import (
     clusters_to_points,
     image_to_quads,
-    pinwheel_base,
-    pinwheel_transform,
     sample_clusters,
     sample_tessels,
-    sobol,
     tessels_to_points,
     tile,
-    warmstart_points,
 )
-from .pinwheel import pinwheel_points
 from .viz import plot_clusters, plot_polygons, plot_tessels
 
 __all__ = [
